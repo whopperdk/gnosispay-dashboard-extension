@@ -41,6 +41,7 @@ A browser extension that enhances the GnosisPay dashboard with transaction analy
 ### Enhanced Transactions list
 - Displays MCC code next to transactions
 - With emojis shows if they earn cashback
+- CSV exporter by clicking the csv icon
 
 ### Spending Analysis
 - Monthly breakdown by category
