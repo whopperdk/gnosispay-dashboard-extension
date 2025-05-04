@@ -1,7 +1,7 @@
 # gnosispay-dashboard-extension
 A browser extension that enhances the GnosisPay dashboard with transaction analysis features.
 
-![Extension Screenshot](extension.png)  ✅ Correct
+![Extension Screenshot](extension.png)
 
 ## Features
 
@@ -16,7 +16,7 @@ A browser extension that enhances the GnosisPay dashboard with transaction analy
 ### Chrome/Edge/Brave
 
 1. Download this repository
-2. Go to `chrome://extensions/`
+2. Go to `chrome://extensions/`, `edge://extensions/`, `brave://extensions/`
 3. Enable "Developer mode"
 4. Click "Load unpacked" and select the `/extension` folder
 
@@ -30,7 +30,7 @@ A browser extension that enhances the GnosisPay dashboard with transaction analy
 ## Usage
 
 1. Log in to your GnosisPay account at https://app.gnosispay.com/
-2. Navigate to the Card or Wallet section
+2. Navigate to the Card section
 3. The extension will automatically enhance your transaction view with:
    - MCC codes and cashback eligibility indicators
    - Spending analysis charts
@@ -46,13 +46,15 @@ A browser extension that enhances the GnosisPay dashboard with transaction analy
 ### Yearly Overview
 - Annual spending trends
 - Category comparison across years
-- Automatic scaling for optimal visualization
 
 ### Cashback Calculator
 - Select a week to analyze
 - Enter your GNO token amount
 - Toggle OG NFT ownership
 - See estimated cashback amount and rate
+
+### Visa Exchange Rate
+- Link to page with Visa Exchange Rate
 
 ## Development
 
