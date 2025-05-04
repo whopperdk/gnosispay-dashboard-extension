@@ -38,14 +38,19 @@ A browser extension that enhances the GnosisPay dashboard with transaction analy
 
 ## Features in Detail
 
+### Enhanced Transactions list
+- Displays MCC code next to transactions
+- With emojis shows if they earn cashback
+
 ### Spending Analysis
 - Monthly breakdown by category
-- Interactive pie chart with category highlighting
+- Interactive category highlighting (if you click on an item in legend, you highlight corresponding transactions)
 - Total spending summary
 
 ### Yearly Overview
 - Annual spending trends
 - Category comparison across years
+- Interactive category highlighting (if you click on an item in legend, you highlight corresponding transactions)
 
 ### Cashback Calculator
 - Select a week to analyze
@@ -54,7 +59,7 @@ A browser extension that enhances the GnosisPay dashboard with transaction analy
 - See estimated cashback amount and rate
 
 ### Visa Exchange Rate
-- Link to page with Visa Exchange Rate
+- Link to page with Visa Exchange Rate (edit bank fee to 0% to have correct rate for Gnosis Pay)
 
 ## Development
 
