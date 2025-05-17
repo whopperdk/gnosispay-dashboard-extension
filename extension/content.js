@@ -753,7 +753,7 @@ async function scrapeTransactionsFromTable() {
         baseRate = 4;
       }
       baseRate = Math.min(baseRate, 4);
-      const totalRate = hasOgNft ? Math.min(baseRate + 1, 5) : baseRate;
+      const totalRate = (hasOgNft && gnoAmount >= 0.1) ? Math.min(baseRate + 1, 5) : baseRate;
       return totalRate / 100;
     }
 
