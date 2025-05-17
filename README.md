@@ -3,6 +3,18 @@ A browser extension that enhances the GnosisPay dashboard with transaction analy
 
 ![Extension Screenshot](extension.png)
 
+## About me
+
+I have been a DeFi user for a fairly long time, and I'm most notably a member of Harvest's team ([harvest.finance](https://www.harvest.finance/)). I have no association with Gnosis Pay's team. Feel free to reach out on Twitter ([@_kobrad](https://x.com/_kobrad)) or Discord (.kobrad)
+
+## Disclaimer
+
+This extension's purpose is to enhance the UI and give access to information that is mostly available via API.
+I have no access to your data as this runs in your browser however, a few words of caution are still necessary:
+1. Not everyone on Web3 is here to help you. I might even say that there are more malicious agents than not. Hence, be very vigilant, especially when using code from third parties.
+2. If you do want to use external code, it would be better to read the code first (or at least verify via AI if this is dangerous in any way). The code for the extension is contained within `content.js`. You're more than encouraged to have a look at the code.
+3. This code will work as intended, as it is within a vanilla environment. If you make changes or add further extensions, I cannot guarantee that things won't break or sensitive data may become accessible (in particular if extensions are made on purpose by malicious agents). As always, be cautious. 
+
 ## Features
 
 - **Spending Analysis**: Visualise spending by category with interactive pie charts
