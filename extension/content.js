@@ -384,6 +384,83 @@ async function scrapeTransactionsFromTable() {
         max-width: 260px; 
       }
     }
+    .about-me-button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    outline: none;
+    background: #f5f5f5;
+    color: #333;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .about-me-button:hover {
+    opacity: 0.9;
+  }
+  .about-me-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .about-me-modal-content {
+    background: #fcfbf9;
+    padding: 20px;
+    border-radius: 8px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    position: relative;
+  }
+  .about-me-modal-content h2 {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #333;
+  }
+  .about-me-modal-content p {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 10px;
+  }
+  .about-me-modal-content h3 {
+    font-size: 16px;
+    font-weight: bold;
+    margin-top: 15px;
+    margin-bottom: 10px;
+    color: #333;
+  }
+  .close-modal-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    color: #333;
+  }
+  .close-modal-button:hover {
+    color: #84ab4e;
+  }
+  @media (max-width: 600px) {
+    .about-me-modal-content {
+      width: 95%;
+      padding: 15px;
+    }
+  }
   `;
   document.head.appendChild(style);
 
@@ -508,6 +585,7 @@ async function scrapeTransactionsFromTable() {
           <button id="toggleYearlyChart" data-active="false">Yearly Chart</button>
           <button id="toggleCashbackCalculator" data-active="false">Cashback Calculator</button>
           <button id="openVisaCalculator">Visa Exchange Rate</button>
+          <button id="aboutMeButton" title="About this extension">?</button>
         </div>
         <div class="chart-wrapper" id="monthlyChartWrapper" style="display: none;">
           <div class="chart-title">Monthly Spending by Category</div>
@@ -535,7 +613,19 @@ async function scrapeTransactionsFromTable() {
           </div>
           <div class="cashback-result" id="cashbackResult">Cashback: £0.00 (0% rate)</div>
         </div>
+      <div class="about-me-modal" id="aboutMeModal">
+      <div class="about-me-modal-content">
+        <button class="close-modal-button" id="closeAboutMeModal">&times;</button>
+        <h2>About me</h2>
+        <p>I have been a DeFi user for a fairly long time, and I'm most notably a member of Harvest's team (<a href="https://www.harvest.finance/" target="_blank" rel="noopener noreferrer">harvest.finance</a>). I have no association with Gnosis Pay's team. Feel free to reach out on Twitter (<a href="https://x.com/_kobrad" target="_blank" rel="noopener noreferrer">@_kobrad</a>) or Discord (.kobrad)</p>
+        <h3>Disclaimer</h3>
+        <p>This extension's purpose is to enhance the UI and give access to information that is mostly available via API. I have no access to your data as this runs in your browser however, a few words of caution are still necessary:</p>
+        <p>Not everyone on Web3 is here to help you. I might even say that there are more malicious agents than not. Hence, be very vigilant, especially when using code from third parties.</p>
+        <p>If you do want to use external code, it would be better to read the code first (or at least verify via AI if this is dangerous in any way). The code for the extension is contained within content.js. You're more than encouraged to have a look at the code.</p>
+        <p>This code will work as intended, as it is within a vanilla environment. If you make changes or add further extensions, I cannot guarantee that things won't break or sensitive data may become accessible (in particular if extensions are made on purpose by malicious agents). As always, be cautious.</p>
       </div>
+    </div>
+  </div>
     `;
 
     if (transactionHeader && transactionHeader.parentNode) {
@@ -699,6 +789,9 @@ async function scrapeTransactionsFromTable() {
       const yearlyChartButton = container.querySelector('#toggleYearlyChart');
       const cashbackCalculatorButton = container.querySelector('#toggleCashbackCalculator');
       const visaCalculatorButton = container.querySelector('#openVisaCalculator');
+      const aboutMeButton = container.querySelector('#aboutMeButton');
+      const aboutMeModal = container.querySelector('#aboutMeModal');
+      const closeModalButton = container.querySelector('#closeAboutMeModal');
 
       const monthlyChartWrapper = container.querySelector('#monthlyChartWrapper');
       const yearlyChartWrapper = container.querySelector('#yearlyChartWrapper');
@@ -735,6 +828,26 @@ async function scrapeTransactionsFromTable() {
       if (visaCalculatorButton) {
         visaCalculatorButton.addEventListener('click', () => {
           window.open('https://www.visa.co.uk/support/consumer/travel-support/exchange-rate-calculator.html', '_blank');
+        });
+      }
+      
+      if (aboutMeButton && aboutMeModal) {
+      aboutMeButton.addEventListener('click', () => {
+        aboutMeModal.style.display = 'flex';
+        });
+      }
+  
+      if (closeModalButton && aboutMeModal) {
+        closeModalButton.addEventListener('click', () => {
+          aboutMeModal.style.display = 'none';
+        });
+      }
+    
+      if (aboutMeModal) {
+        aboutMeModal.addEventListener('click', (event) => {
+          if (event.target === aboutMeModal) {
+            aboutMeModal.style.display = 'none';
+          }
         });
       }
     }
