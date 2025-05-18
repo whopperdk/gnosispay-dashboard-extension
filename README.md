@@ -21,6 +21,7 @@ I have no access to your data as this runs in your browser however, a few words 
 - **Yearly Overview**: View spending trends over time with histogram charts
 - **Cashback Calculator**: Estimate potential cashback earnings
 - **MCC Insights**: See merchant category codes and cashback eligibility
+- **Transactions Filter Tool**: Filter your transactions with a search bar and time / cashback / country / category filters
 - **Data Export**: Export transaction history to CSV
 
 ## Installation
@@ -54,6 +55,7 @@ I have no access to your data as this runs in your browser however, a few words 
 - Displays MCC code next to transactions
 - With emojis shows if they earn cashback
 - CSV exporter by clicking the csv icon
+- Filter transactions with dedicated tool
 
 ### Spending Analysis
 - Monthly breakdown by category
