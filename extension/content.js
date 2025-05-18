@@ -573,11 +573,22 @@ let noCashback = false;
   }
 
 function filterTransactions(transactions) {
+  console.log('Filtering transactions:', transactions.map(tx => ({
+    rowIndex: tx.rowIndex,
+    merchant: tx.merchant?.name,
+    country: tx.country?.name,
+    category: getMccCategory(tx.mcc),
+    month: tx.createdAt ? new Date(tx.createdAt).getMonth() + 1 : null,
+    year: tx.createdAt ? new Date(tx.createdAt).getFullYear() : null,
+    mcc: tx.mcc,
+    transactionType: tx.transactionType,
+    isCashbackEligible: tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType)
+  })));
   const filtered = transactions.filter(tx => {
     const merchantMatch = !merchantSearch || (tx.merchant?.name || '').toLowerCase().includes(merchantSearch.toLowerCase());
     const countryMatch = selectedCountry === 'all' || tx.country?.name === selectedCountry;
     const categoryMatch = selectedCategory === 'all' || getMccCategory(tx.mcc) === selectedCategory;
-    let monthMatch = true; 
+    let monthMatch = true;
     if (selectedMonth !== 'all' && tx.createdAt) {
       const txDate = new Date(tx.createdAt);
       if (!isNaN(txDate.getTime())) {
@@ -586,7 +597,7 @@ function filterTransactions(transactions) {
         console.warn(`Invalid createdAt for transaction ${tx.rowIndex}: ${tx.createdAt}`);
       }
     }
-    let yearMatch = true; 
+    let yearMatch = true;
     if (selectedYear !== 'all' && tx.createdAt) {
       const txDate = new Date(tx.createdAt);
       if (!isNaN(txDate.getTime())) {
@@ -596,13 +607,82 @@ function filterTransactions(transactions) {
       }
     }
     const isCashbackEligible = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
-    const cashbackMatch = 
-      (!cashbackEligible && !noCashback) || 
-      (cashbackEligible && isCashbackEligible) || 
-      (noCashback && !isCashbackEligible);
+    let cashbackMatch = true;
+    if (cashbackEligible && !noCashback) {
+      cashbackMatch = isCashbackEligible;
+    } else if (noCashback && !cashbackEligible) {
+      cashbackMatch = !isCashbackEligible;
+    }
+    console.log(`Transaction ${tx.rowIndex} filter check:`, {
+      merchantMatch,
+      countryMatch,
+      categoryMatch,
+      monthMatch,
+      yearMatch,
+      cashbackMatch,
+      isCashbackEligible
+    });
     return merchantMatch && countryMatch && categoryMatch && monthMatch && yearMatch && cashbackMatch;
   });
+  console.log('Filtered transactions:', filtered.map(tx => ({
+    rowIndex: tx.rowIndex,
+    merchant: tx.merchant?.name,
+    isCashbackEligible: tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType)
+  })));
   return filtered;
+}
+function updateTableHighlights(transactions, chartType = 'pie', selectedCategory = null, selectedColor = null, selectedMonth = null, selectedYear = null) {
+  const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
+  if (!table) {
+    console.warn('Table not found for highlights');
+    return;
+  }
+  const rows = table.querySelectorAll('tbody tr');
+  rows.forEach((row) => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length < 5) return;
+    const mccText = cells[4]?.textContent.trim() || '';
+    let mcc = '0000';
+    try {
+      if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
+    } catch (error) {
+      console.warn(`Failed to parse MCC "${mccText}"`);
+    }
+    const rowCategory = getMccCategory(mcc);
+    const dateText = cells[0]?.textContent.trim() || '';
+    const txDate = parseTransactionDate(dateText);
+    const rowMonth = new Date(txDate).getMonth() + 1;
+    const rowYear = new Date(txDate).getFullYear();
+    const highlightKeyMonth = `${rowYear}-${rowMonth}-${rowCategory}-${chartType}`;
+    const highlightKeyAll = `all-${rowCategory}-${chartType}`;
+    const shouldHighlight = selectedCategory && selectedHighlights.has(highlightKeyMonth) || selectedHighlights.has(highlightKeyAll);
+    const isMatchingTransaction = transactions.some(tx => {
+      if (!tx.createdAt) return false;
+      const txDateObj = new Date(tx.createdAt);
+      if (isNaN(txDateObj.getTime())) return false;
+      const isSameDate =
+        txDateObj.getFullYear() === rowYear &&
+        txDateObj.getMonth() + 1 === rowMonth &&
+        txDateObj.getDate() === new Date(txDate).getDate();
+      const isSameCategory = getMccCategory(tx.mcc) === rowCategory;
+      return isSameDate && isSameCategory &&
+             (!selectedMonth || selectedMonth === rowMonth || selectedMonth === 'all') &&
+             (!selectedYear || selectedYear === rowYear || selectedYear === 'all');
+    });
+    if (shouldHighlight && rowCategory === selectedCategory && isMatchingTransaction) {
+      row.classList.add('highlight-row');
+      row.querySelectorAll('td').forEach(cell => {
+        cell.style.color = selectedColor || '';
+        cell.style.fontWeight = 'bold';
+      });
+    } else {
+      row.classList.remove('highlight-row');
+      row.querySelectorAll('td').forEach(cell => {
+        cell.style.color = '';
+        cell.style.fontWeight = '';
+      });
+    }
+  });
 }
 
   function updateTableDisplay(transactions) {
@@ -1134,7 +1214,6 @@ function setupFilterListeners() {
   const yearSelect = container.querySelector('#yearFilter');
   const cashbackEligibleButton = container.querySelector('#cashbackEligibleFilter');
   const noCashbackButton = container.querySelector('#noCashbackFilter');
-
   function applyFilters() {
     const filteredTransactions = filterTransactions(allTransactions);
     updateTableDisplay(filteredTransactions);
@@ -1145,6 +1224,7 @@ function setupFilterListeners() {
   if (merchantSearchInput) {
     merchantSearchInput.addEventListener('input', () => {
       merchantSearch = merchantSearchInput.value.trim();
+      console.log('Merchant search updated:', merchantSearch);
       applyFilters();
     });
   } else {
@@ -1153,6 +1233,7 @@ function setupFilterListeners() {
   if (countrySelect) {
     countrySelect.addEventListener('change', () => {
       selectedCountry = countrySelect.value;
+      console.log('Country filter updated:', selectedCountry);
       applyFilters();
     });
   } else {
@@ -1161,6 +1242,7 @@ function setupFilterListeners() {
   if (categorySelect) {
     categorySelect.addEventListener('change', () => {
       selectedCategory = categorySelect.value;
+      console.log('Category filter updated:', selectedCategory);
       applyFilters();
     });
   } else {
@@ -1169,6 +1251,7 @@ function setupFilterListeners() {
   if (monthSelect) {
     monthSelect.addEventListener('change', () => {
       selectedMonth = monthSelect.value;
+      console.log('Month filter updated:', selectedMonth);
       applyFilters();
     });
   } else {
@@ -1177,6 +1260,7 @@ function setupFilterListeners() {
   if (yearSelect) {
     yearSelect.addEventListener('change', () => {
       selectedYear = yearSelect.value;
+      console.log('Year filter updated:', selectedYear);
       applyFilters();
     });
   } else {
@@ -1185,10 +1269,11 @@ function setupFilterListeners() {
   if (cashbackEligibleButton) {
     cashbackEligibleButton.addEventListener('click', () => {
       cashbackEligible = !cashbackEligible;
-      if (cashbackEligible) noCashback = false; 
+      if (cashbackEligible) noCashback = false;
       cashbackEligibleButton.setAttribute('data-active', cashbackEligible);
       const noCashbackBtn = container.querySelector('#noCashbackFilter');
       if (noCashbackBtn) noCashbackBtn.setAttribute('data-active', noCashback);
+      console.log('Cashback eligible toggled:', cashbackEligible, 'No cashback:', noCashback);
       applyFilters();
     });
   } else {
@@ -1197,10 +1282,11 @@ function setupFilterListeners() {
   if (noCashbackButton) {
     noCashbackButton.addEventListener('click', () => {
       noCashback = !noCashback;
-      if (noCashback) cashbackEligible = false; 
+      if (noCashback) cashbackEligible = false;
       noCashbackButton.setAttribute('data-active', noCashback);
       const cashbackEligibleBtn = container.querySelector('#cashbackEligibleFilter');
       if (cashbackEligibleBtn) cashbackEligibleBtn.setAttribute('data-active', cashbackEligible);
+      console.log('No cashback toggled:', noCashback, 'Cashback eligible:', cashbackEligible);
       applyFilters();
     });
   } else {
@@ -1601,51 +1687,7 @@ function updateTableCashbackHighlights(filteredTransactions) {
       else selectedHighlights.add(highlightKey);
       updateTableHighlights(transactions, chartType, category, color, selectedMonth, selectedYear);
     }
-    function updateTableHighlights(transactions, chartType, selectedCategory, selectedColor, selectedMonth, selectedYear) {
-      const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
-      if (!table) return;
-      const rows = table.querySelectorAll('tbody tr');
-      rows.forEach((row) => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 6) return;
-        const mccText = cells[5]?.textContent.trim() || '';
-        let mcc = '0000';
-        try {
-          if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
-        } catch (error) {}
-        const rowCategory = getMccCategory(mcc);
-        const dateText = cells[0]?.textContent.trim() || '';
-        const txDate = parseTransactionDate(dateText);
-        const rowMonth = new Date(txDate).getMonth() + 1;
-        const rowYear = new Date(txDate).getFullYear();
-        const highlightKeyMonth = `${rowYear}-${rowMonth}-${rowCategory}-${chartType}`;
-        const highlightKeyAll = `all-${rowCategory}-${chartType}`;
-        const shouldHighlight = selectedHighlights.has(highlightKeyMonth) || selectedHighlights.has(highlightKeyAll);
-        const isMatchingTransaction = transactions.some(tx => {
-          if (!tx.createdAt) return false;
-          const txDateObj = new Date(tx.createdAt);
-          const isSameDate =
-            txDateObj.getFullYear() === rowYear &&
-            txDateObj.getMonth() + 1 === rowMonth &&
-            txDateObj.getDate() === new Date(txDate).getDate();
-          const isSameCategory = getMccCategory(tx.mcc) === rowCategory;
-          return isSameDate && isSameCategory && (!selectedMonth || selectedMonth === rowMonth) && (!selectedYear || selectedYear === rowYear);
-        });
-        if (shouldHighlight && rowCategory === selectedCategory && isMatchingTransaction) {
-          row.classList.add('highlight-row');
-          row.querySelectorAll('td').forEach(cell => {
-            cell.style.color = selectedColor;
-            cell.style.fontWeight = 'bold';
-          });
-        } else {
-          row.classList.remove('highlight-row');
-          row.querySelectorAll('td').forEach(cell => {
-            cell.style.color = '';
-            cell.style.fontWeight = '';
-          });
-        }
-      });
-    }
+
     function clearTableHighlights() {
       selectedHighlights.clear();
       const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
