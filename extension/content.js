@@ -96,12 +96,12 @@ async function scrapeTransactionsFromTable() {
   rows.forEach((row, index) => {
     if (row.querySelector('th')) return;
     const cells = row.querySelectorAll('td');
-    if (cells.length < 4) return; // Date, Category, Merchant, Amount
+    if (cells.length < 4) return; 
     const dateText = cells[0]?.textContent.trim() || '';
     const merchantText = cells[1]?.textContent.trim() || '';
     const amountText = cells[3]?.textContent.trim() || '';
     const mccText = cells[5]?.textContent.trim() || '';
-    const typeText = cells[2]?.textContent.trim().toUpperCase() || 'PURCHASE'; // MCC column if present
+    const typeText = cells[2]?.textContent.trim().toUpperCase() || 'PURCHASE'; 
     let createdAt = parseTransactionDate(dateText);
     let billingAmount = 0;
     try {
@@ -141,8 +141,8 @@ let allTransactions = [];
 let merchantSearch = '';
 let selectedCountry = 'all';
 let selectedCategory = 'all';
-let selectedMonth = 'all'; // New: Month filter
-let selectedYear = 'all'; // New: Year filter
+let selectedMonth = 'all'; 
+let selectedYear = 'all'; 
 let cashbackEligible = false;
 let noCashback = false;
 
@@ -573,26 +573,12 @@ let noCashback = false;
   }
 
 function filterTransactions(transactions) {
-  console.log('Filtering transactions:', transactions.map(tx => ({
-    rowIndex: tx.rowIndex,
-    merchant: tx.merchant?.name,
-    country: tx.country?.name,
-    category: getMccCategory(tx.mcc),
-    month: tx.createdAt ? new Date(tx.createdAt).getMonth() + 1 : null,
-    year: tx.createdAt ? new Date(tx.createdAt).getFullYear() : null,
-    mcc: tx.mcc,
-    transactionType: tx.transactionType,
-    isCashbackEligible: tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType)
-  })));
-
   const filtered = transactions.filter(tx => {
     const merchantMatch = !merchantSearch || (tx.merchant?.name || '').toLowerCase().includes(merchantSearch.toLowerCase());
     const countryMatch = selectedCountry === 'all' || tx.country?.name === selectedCountry;
     const categoryMatch = selectedCategory === 'all' || getMccCategory(tx.mcc) === selectedCategory;
-
-    // Handle month filter
-    let monthMatch = selectedMonth === 'all';
-    if (!monthMatch && tx.createdAt) {
+    let monthMatch = true; 
+    if (selectedMonth !== 'all' && tx.createdAt) {
       const txDate = new Date(tx.createdAt);
       if (!isNaN(txDate.getTime())) {
         monthMatch = txDate.getMonth() + 1 === parseInt(selectedMonth, 10);
@@ -600,10 +586,8 @@ function filterTransactions(transactions) {
         console.warn(`Invalid createdAt for transaction ${tx.rowIndex}: ${tx.createdAt}`);
       }
     }
-
-    // Handle year filter
-    let yearMatch = selectedYear === 'all';
-    if (!yearMatch && tx.createdAt) {
+    let yearMatch = true; 
+    if (selectedYear !== 'all' && tx.createdAt) {
       const txDate = new Date(tx.createdAt);
       if (!isNaN(txDate.getTime())) {
         yearMatch = txDate.getFullYear() === parseInt(selectedYear, 10);
@@ -611,43 +595,17 @@ function filterTransactions(transactions) {
         console.warn(`Invalid createdAt for transaction ${tx.rowIndex}: ${tx.createdAt}`);
       }
     }
-
     const isCashbackEligible = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
     const cashbackMatch = 
       (!cashbackEligible && !noCashback) || 
       (cashbackEligible && isCashbackEligible) || 
       (noCashback && !isCashbackEligible);
-
-    const matches = merchantMatch && countryMatch && categoryMatch && monthMatch && yearMatch && cashbackMatch;
-    if (!matches) {
-      console.log(`Transaction ${tx.rowIndex} filtered out:`, {
-        merchantMatch,
-        countryMatch,
-        categoryMatch,
-        monthMatch,
-        yearMatch,
-        cashbackMatch
-      });
-    }
-
-    return matches;
+    return merchantMatch && countryMatch && categoryMatch && monthMatch && yearMatch && cashbackMatch;
   });
-
-  console.log('Filtered transactions:', filtered.map(tx => ({
-    rowIndex: tx.rowIndex,
-    merchant: tx.merchant?.name
-  })));
   return filtered;
 }
 
   function updateTableDisplay(transactions) {
-    console.log('Filtering table with transactions:', transactions.map(tx => ({
-      rowIndex: tx.rowIndex,
-      merchant: tx.merchant?.name,
-      mcc: tx.mcc,
-      category: getMccCategory(tx.mcc),
-      country: tx.country?.name
-    })));
     const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
     if (!table) {
       console.warn('Table not found for update');
@@ -683,7 +641,6 @@ function populateMonthDropdown(transactions) {
     option.textContent = date.toLocaleString('default', { month: 'long' });
     monthSelect.appendChild(option);
   });
-  console.log('Populated months:', months);
 }
 
 function populateYearDropdown(transactions) {
@@ -700,7 +657,6 @@ function populateYearDropdown(transactions) {
     option.textContent = year;
     yearSelect.appendChild(option);
   });
-  console.log('Populated years:', years);
 }
 
   function populateCountryDropdown(transactions) {
@@ -714,7 +670,6 @@ function populateYearDropdown(transactions) {
       option.textContent = country;
       countrySelect.appendChild(option);
     });
-    console.log('Populated countries:', countries);
   }
 
   function populateCategoryDropdown(transactions) {
@@ -728,7 +683,6 @@ function populateYearDropdown(transactions) {
       option.textContent = category;
       categorySelect.appendChild(option);
     });
-    console.log('Populated categories:', categories);
   }
 
   async function setupButtonListeners() {
@@ -970,7 +924,6 @@ container.innerHTML = `
         monthSelect.appendChild(option);
       });
     }
-    console.log('Populated chart months for year:', selectedYear, 'months:', monthsWithTransactions);
   }
   function populateWeekDropdown(transactions) {
     weekSelect.innerHTML = '';
@@ -982,7 +935,6 @@ container.innerHTML = `
       option.disabled = true;
       option.selected = true;
       weekSelect.appendChild(option);
-      console.log('Populated weeks: 0 (no valid transactions)');
       return;
     }
     const weeks = new Set();
@@ -1019,15 +971,12 @@ container.innerHTML = `
       option.selected = true;
       weekSelect.appendChild(option);
     }
-    console.log(`Populated weeks: ${sortedWeeks.length}`);
   }
-  // Populate filter dropdowns
-  console.log('Populating filter dropdowns with transactions:', transactions.length);
   populateMonthDropdown(transactions);
   populateYearDropdown(transactions);
   populateCountryDropdown(transactions);
   populateCategoryDropdown(transactions);
-  // Populate chart and week dropdowns
+  
   populateMonthDropdownChart(defaultYear);
   populateWeekDropdown(transactions);
   const waitForControls = () => {
@@ -1059,7 +1008,6 @@ container.innerHTML = `
   };
   try {
     await waitForControls();
-    console.log('Chart controls and filter dropdowns ready, setting up listeners');
     setupFilterListeners();
     setupVisibilityToggles();
   } catch (error) {
@@ -1070,7 +1018,7 @@ container.innerHTML = `
   await updateChart(transactions);
   await updateYearlyHistogram(transactions);
 
-  function setupVisibilityToggles() {
+function setupVisibilityToggles() {
   const monthlyChartButton = container.querySelector('#toggleMonthlyChart');
   const yearlyChartButton = container.querySelector('#toggleYearlyChart');
   const cashbackCalculatorButton = container.querySelector('#toggleCashbackCalculator');
@@ -1084,31 +1032,16 @@ container.innerHTML = `
   const cashbackCalculatorWrapper = container.querySelector('#cashbackCalculatorWrapper');
   const filterToolWrapper = container.querySelector('#filterToolWrapper');
   const chartControls = container.querySelector('.chart-controls');
-
-  console.log('Setting up visibility toggles:', {
-    monthlyChartButton: !!monthlyChartButton,
-    yearlyChartButton: !!yearlyChartButton,
-    cashbackCalculatorButton: !!cashbackCalculatorButton,
-    visaCalculatorButton: !!visaCalculatorButton,
-    aboutMeButton: !!aboutMeButton,
-    aboutMeModal: !!aboutMeModal,
-    closeModalButton: !!closeModalButton,
-    monthlyChartWrapper: !!monthlyChartWrapper,
-    yearlyChartWrapper: !!yearlyChartWrapper,
-    cashbackCalculatorWrapper: !!cashbackCalculatorWrapper,
-    chartControls: !!chartControls
-  });
-
-function resetFilters() {
-    console.log('Resetting filters');
+  function resetFilters(preserveCashback = false) {
     merchantSearch = '';
     selectedCountry = 'all';
     selectedCategory = 'all';
     selectedMonth = 'all';
     selectedYear = 'all';
-    cashbackEligible = false;
-    noCashback = false;
-
+    if (!preserveCashback) {
+      cashbackEligible = false;
+      noCashback = false;
+    }
     const merchantSearchInput = container.querySelector('#merchantSearch');
     const countrySelect = container.querySelector('#countryFilter');
     const categorySelect = container.querySelector('#categoryFilter');
@@ -1116,131 +1049,80 @@ function resetFilters() {
     const yearSelect = container.querySelector('#yearFilter');
     const cashbackEligibleButton = container.querySelector('#cashbackEligibleFilter');
     const noCashbackButton = container.querySelector('#noCashbackFilter');
-
     if (merchantSearchInput) merchantSearchInput.value = '';
     if (countrySelect) countrySelect.value = 'all';
     if (categorySelect) categorySelect.value = 'all';
     if (monthSelect) monthSelect.value = 'all';
     if (yearSelect) yearSelect.value = 'all';
-    if (cashbackEligibleButton) cashbackEligibleButton.setAttribute('data-active', 'false');
-    if (noCashbackButton) noCashbackButton.setAttribute('data-active', 'false');
-
+    if (cashbackEligibleButton) cashbackEligibleButton.setAttribute('data-active', cashbackEligible);
+    if (noCashbackButton) noCashbackButton.setAttribute('data-active', noCashback);
     const filteredTransactions = filterTransactions(allTransactions);
     updateTableDisplay(filteredTransactions);
     updateChart(filteredTransactions);
     updateYearlyHistogram(filteredTransactions);
     populateWeekDropdown(filteredTransactions);
-    console.log('Filters reset, table and charts updated');
   }
-
   function toggleButton(button, wrapper, additionalWrapper = null) {
-    if (!button || !wrapper) {
-      console.warn('Toggle button or wrapper not found:', { buttonId: button?.id, wrapperId: wrapper?.id });
-      return;
-    }
+    if (!button || !wrapper) return;
     const isActive = button.getAttribute('data-active') === 'true';
     button.setAttribute('data-active', !isActive);
     wrapper.style.display = isActive ? 'none' : 'block';
     if (additionalWrapper) {
       additionalWrapper.style.display = isActive ? 'none' : 'flex';
     }
-    console.log(`Toggled ${button.id}: active=${!isActive}, wrapper display=${wrapper.style.display}`);
+    if (button === filterToolButton && !isActive) {
+      setupFilterListeners();
+      populateMonthDropdown(allTransactions);
+      populateYearDropdown(allTransactions);
+      populateCountryDropdown(allTransactions);
+      populateCategoryDropdown(allTransactions);
+    }
     if (button === cashbackCalculatorButton) {
       if (isActive) {
-        // Untoggling: Hide calculator and clear hand emojis
         clearCashbackHighlights();
       }
       if (!isActive) {
-        // Toggling on: Reset filters
-        resetFilters();
+        resetFilters(false); 
       }
     } else if (button === filterToolButton) {
       if (isActive) {
-        // Untoggling: Reset filters
-        resetFilters();
+        resetFilters(true); 
       }
     }
   }
-
   if (monthlyChartButton && monthlyChartWrapper && chartControls) {
     monthlyChartButton.addEventListener('click', () => toggleButton(monthlyChartButton, monthlyChartWrapper, chartControls));
-  } else {
-    console.warn('Monthly chart toggle setup failed:', {
-      monthlyChartButton: !!monthlyChartButton,
-      monthlyChartWrapper: !!monthlyChartWrapper,
-      chartControls: !!chartControls
-    });
   }
-
   if (yearlyChartButton && yearlyChartWrapper) {
     yearlyChartButton.addEventListener('click', () => toggleButton(yearlyChartButton, yearlyChartWrapper));
-  } else {
-    console.warn('Yearly chart toggle setup failed:', {
-      yearlyChartButton: !!yearlyChartButton,
-      yearlyChartWrapper: !!yearlyChartWrapper
-    });
   }
-
   if (cashbackCalculatorButton && cashbackCalculatorWrapper) {
     cashbackCalculatorButton.addEventListener('click', () => toggleButton(cashbackCalculatorButton, cashbackCalculatorWrapper));
-  } else {
-    console.warn('Cashback calculator toggle setup failed:', {
-      cashbackCalculatorButton: !!cashbackCalculatorButton,
-      cashbackCalculatorWrapper: !!cashbackCalculatorWrapper
-    });
   }
-
   if (filterToolButton && filterToolWrapper) {
     filterToolButton.addEventListener('click', () => toggleButton(filterToolButton, filterToolWrapper));
-  } else {
-    console.warn('Filter tool toggle setup failed:', {
-      filterToolButton: !!filterToolButton,
-      filterToolWrapper: !!filterToolWrapper
-    });
   }
-
   if (visaCalculatorButton) {
     visaCalculatorButton.addEventListener('click', () => {
-      console.log('Opening Visa Exchange Rate calculator');
       window.open('https://www.visa.co.uk/support/consumer/travel-support/exchange-rate-calculator.html', '_blank');
     });
-  } else {
-    console.warn('Visa calculator button not found');
   }
-
   if (aboutMeButton && aboutMeModal) {
     aboutMeButton.addEventListener('click', () => {
-      console.log('Showing About Me modal');
       aboutMeModal.style.display = 'flex';
     });
-  } else {
-    console.warn('About Me button or modal not found:', {
-      aboutMeButton: !!aboutMeButton,
-      aboutMeModal: !!aboutMeModal
-    });
   }
-
   if (closeModalButton && aboutMeModal) {
     closeModalButton.addEventListener('click', () => {
-      console.log('Closing About Me modal');
       aboutMeModal.style.display = 'none';
     });
-  } else {
-    console.warn('Close modal button or modal not found:', {
-      closeModalButton: !!closeModalButton,
-      aboutMeModal: !!aboutMeModal
-    });
   }
-
   if (aboutMeModal) {
     aboutMeModal.addEventListener('click', (event) => {
       if (event.target === aboutMeModal) {
-        console.log('Closing About Me modal via backdrop click');
         aboutMeModal.style.display = 'none';
       }
     });
-  } else {
-    console.warn('About Me modal not found for backdrop click');
   }
 }
 
@@ -1253,105 +1135,79 @@ function setupFilterListeners() {
   const cashbackEligibleButton = container.querySelector('#cashbackEligibleFilter');
   const noCashbackButton = container.querySelector('#noCashbackFilter');
 
-  console.log('Setting up filter listeners:', {
-    merchantSearchInput: !!merchantSearchInput,
-    countrySelect: !!countrySelect,
-    categorySelect: !!categorySelect,
-    monthSelect: !!monthSelect,
-    yearSelect: !!yearSelect,
-    cashbackEligibleButton: !!cashbackEligibleButton,
-    noCashbackButton: !!noCashbackButton
-  });
-
   function applyFilters() {
-    console.log('Applying filters with state:', {
-      merchantSearch,
-      selectedCountry,
-      selectedCategory,
-      selectedMonth,
-      selectedYear,
-      cashbackEligible,
-      noCashback
-    });
     const filteredTransactions = filterTransactions(allTransactions);
     updateTableDisplay(filteredTransactions);
     updateChart(filteredTransactions);
     updateYearlyHistogram(filteredTransactions);
     populateWeekDropdown(filteredTransactions);
   }
-
   if (merchantSearchInput) {
     merchantSearchInput.addEventListener('input', () => {
       merchantSearch = merchantSearchInput.value.trim();
-      console.log('Merchant search updated:', merchantSearch);
       applyFilters();
     });
   } else {
     console.warn('Merchant search input not found');
   }
-
   if (countrySelect) {
     countrySelect.addEventListener('change', () => {
       selectedCountry = countrySelect.value;
-      console.log('Country filter updated:', selectedCountry);
       applyFilters();
     });
   } else {
     console.warn('Country select not found');
   }
-
   if (categorySelect) {
     categorySelect.addEventListener('change', () => {
       selectedCategory = categorySelect.value;
-      console.log('Category filter updated:', selectedCategory);
       applyFilters();
     });
   } else {
     console.warn('Category select not found');
   }
-
   if (monthSelect) {
     monthSelect.addEventListener('change', () => {
       selectedMonth = monthSelect.value;
-      console.log('Month filter updated:', selectedMonth);
       applyFilters();
     });
   } else {
     console.warn('Month select not found');
   }
-
   if (yearSelect) {
     yearSelect.addEventListener('change', () => {
       selectedYear = yearSelect.value;
-      console.log('Year filter updated:', selectedYear);
       applyFilters();
     });
   } else {
     console.warn('Year select not found');
   }
-
   if (cashbackEligibleButton) {
     cashbackEligibleButton.addEventListener('click', () => {
       cashbackEligible = !cashbackEligible;
+      if (cashbackEligible) noCashback = false; 
       cashbackEligibleButton.setAttribute('data-active', cashbackEligible);
-      console.log('Cashback eligible filter updated:', cashbackEligible);
+      const noCashbackBtn = container.querySelector('#noCashbackFilter');
+      if (noCashbackBtn) noCashbackBtn.setAttribute('data-active', noCashback);
       applyFilters();
     });
   } else {
     console.warn('Cashback eligible button not found');
   }
-
   if (noCashbackButton) {
     noCashbackButton.addEventListener('click', () => {
       noCashback = !noCashback;
+      if (noCashback) cashbackEligible = false; 
       noCashbackButton.setAttribute('data-active', noCashback);
-      console.log('No cashback filter updated:', noCashback);
+      const cashbackEligibleBtn = container.querySelector('#cashbackEligibleFilter');
+      if (cashbackEligibleBtn) cashbackEligibleBtn.setAttribute('data-active', cashbackEligible);
       applyFilters();
     });
   } else {
     console.warn('No cashback button not found');
   }
 }
+
     setupFilterListeners();
     function calculateCashbackRate(gnoAmount, hasOgNft) {
       let baseRate = 0;
@@ -1393,8 +1249,7 @@ function calculateCashback(transactions, weekPeriod, gnoAmount, hasOgNft) {
       console.warn(`Transaction ${tx.rowIndex} skipped: No valid date field`);
       return false;
     }
-    if (tx.isPending || tx.status === 'Reversal' || tx.status === 'Other' || tx.kind === 'Reversal') { // Reverted to 'Other'
-      console.log(`Transaction ${tx.rowIndex} skipped: Invalid status or kind`);
+    if (tx.isPending || tx.status === 'Reversal' || tx.status === 'Other' || tx.kind === 'Reversal') { 
       return false;
     }
     const txDate = new Date(dateField);
@@ -1405,25 +1260,8 @@ function calculateCashback(transactions, weekPeriod, gnoAmount, hasOgNft) {
     const isInDateRange = txDate >= from && txDate <= to;
     const isEligibleMcc = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc);
     const isEligibleType = tx.transactionType && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
-    console.log(`Transaction ${tx.rowIndex} eligibility:`, {
-      isInDateRange,
-      isEligibleMcc,
-      isEligibleType,
-      txDate: txDate.toISOString(),
-      mcc: tx.mcc,
-      type: tx.transactionType
-    });
     return isInDateRange && isEligibleMcc && isEligibleType;
   });
-  console.log('Filtered transactions for cashback:', filteredTransactions.map(tx => ({
-    rowIndex: tx.rowIndex,
-    merchant: tx.merchant?.name,
-    date: tx.clearedAt || tx.createdAt,
-    amount: tx.billingAmount,
-    mcc: tx.mcc,
-    status: tx.status,
-    kind: tx.kind
-  })));
   const cashbackRate = calculateCashbackRate(gnoAmount, hasOgNft);
   const totalCashback = filteredTransactions.reduce((sum, tx) => {
     const amount = parseFloat(tx.billingAmount) || 0;
@@ -1434,37 +1272,24 @@ function calculateCashback(transactions, weekPeriod, gnoAmount, hasOgNft) {
 }
 
 function clearCashbackHighlights() {
-  console.log('Hiding cashback highlight emojis');
   const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
   if (!table) {
     console.warn('Table not found for hiding cashback highlights');
     return;
   }
   const emojis = table.querySelectorAll('.hand-emoji');
-  console.log(`Found ${emojis.length} hand emojis in table`);
   emojis.forEach((emoji, index) => {
     emoji.style.display = 'none';
-    console.log(`Hid hand emoji ${index}`);
   });
 }
 
 function updateTableCashbackHighlights(filteredTransactions) {
-  console.log('Updating cashback highlights for transactions:', filteredTransactions.map(tx => ({
-    rowIndex: tx.rowIndex,
-    merchant: tx.merchant?.name,
-    date: tx.createdAt, // Reverted to createdAt
-    amount: tx.billingAmount,
-    mcc: tx.mcc,
-    status: tx.status,
-    kind: tx.kind
-  })));
   const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
   if (!table) {
     console.warn('Table not found for cashback highlights');
     return;
   }
   const rows = table.querySelectorAll('tbody tr');
-  console.log(`Found ${rows.length} table rows`);
   rows.forEach((row, rowIndex) => {
     const cells = row.querySelectorAll('td');
     if (cells.length < 6) {
@@ -1476,7 +1301,6 @@ function updateTableCashbackHighlights(filteredTransactions) {
     const amountText = cells[3]?.textContent.trim() || '';
     let mccText = cells[5]?.textContent.trim() || '';
     if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED')) {
-      console.log(`Row ${rowIndex}: Skipping due to Pending/Declined status`);
       return;
     }
     const tableDate = parseTransactionDate(dateText);
@@ -1505,7 +1329,7 @@ function updateTableCashbackHighlights(filteredTransactions) {
       return;
     }
     const isIncluded = filteredTransactions.some(tx => {
-      const txCreatedAt = new Date(tx.createdAt); // Reverted to createdAt
+      const txCreatedAt = new Date(tx.createdAt); 
       if (isNaN(txCreatedAt.getTime())) {
         console.warn(`Transaction ${tx.rowIndex}: Invalid transaction date "${tx.createdAt}"`);
         return false;
@@ -1515,27 +1339,13 @@ function updateTableCashbackHighlights(filteredTransactions) {
         txCreatedAt.getUTCMonth() === parsedTableDate.getUTCMonth() &&
         txCreatedAt.getUTCDate() === parsedTableDate.getUTCDate();
       const isSameAmount = Math.abs(parseFloat(tx.billingAmount) - billingAmount) < 0.5;
-      const normalizedMerchantText = merchantText.replace(/\s+/g, ' ').trim().replace(/ - .*$/, ''); // Reverted normalization
+      const normalizedMerchantText = merchantText.replace(/\s+/g, ' ').trim().replace(/ - .*$/, ''); 
       const normalizedTxMerchant = tx.merchant?.name?.replace(/\s+/g, ' ').trim() || '';
       const merchantMatch = normalizedMerchantText && normalizedTxMerchant
         ? normalizedTxMerchant.toLowerCase().includes(normalizedMerchantText.toLowerCase()) ||
           normalizedMerchantText.toLowerCase().includes(normalizedTxMerchant.toLowerCase())
         : normalizedMerchantText === normalizedTxMerchant;
       const isSameMcc = tx.mcc === mcc;
-      console.log(`Row ${rowIndex} matching check:`, {
-        isSameDate,
-        isSameAmount,
-        merchantMatch,
-        isSameMcc,
-        tableDate: parsedTableDate.toISOString(),
-        txDate: txCreatedAt.toISOString(),
-        tableAmount: billingAmount,
-        txAmount: parseFloat(tx.billingAmount),
-        tableMerchant: normalizedMerchantText,
-        txMerchant: normalizedTxMerchant,
-        tableMcc: mcc,
-        txMcc: tx.mcc
-      });
       return isSameDate && isSameAmount && merchantMatch && isSameMcc;
     });
     const dateCell = cells[0];
@@ -1549,7 +1359,6 @@ function updateTableCashbackHighlights(filteredTransactions) {
       emoji.className = 'hand-emoji';
       emoji.textContent = '👉';
       dateCell.insertBefore(emoji, dateCell.firstChild);
-      console.log(`Row ${rowIndex}: Added hand emoji for merchant "${merchantText}"`);
     } else {
       console.log(`Row ${rowIndex}: Skipped hand emoji for merchant "${merchantText}"`);
     }
@@ -1865,7 +1674,7 @@ calculateButton.addEventListener('click', () => {
   const gnoAmount = parseFloat(container.querySelector('#gnoAmount').value) || 0;
   const hasOgNft = container.querySelector('#ogNft').checked;
   const { totalCashback, cashbackRate, filteredTransactions, currency } = calculateCashback(
-    allTransactions, // Reverted to allTransactions
+    allTransactions, 
     weekPeriod,
     gnoAmount,
     hasOgNft
@@ -2014,7 +1823,7 @@ async function init() {
         await createSpendingChart(transactions);
         await setupButtonListeners();
         const filteredTransactions = filterTransactions(transactions);
-        updateTableDisplay(filteredTransactions); // Initial filter application
+        updateTableDisplay(filteredTransactions); 
         break;
       } catch (error) {
         retries--;
@@ -2053,7 +1862,6 @@ const observer = new MutationObserver(async () => {
           await window.updateYearlyHistogram(filteredTransactions);
           const weekSelect = container.querySelector('#weekSelect');
           if (weekSelect) populateWeekDropdown(filteredTransactions);
-          console.log('Repopulating filter dropdowns and re-setting listeners due to table change');
           populateMonthDropdown(transactions);
           populateYearDropdown(transactions);
           populateCountryDropdown(transactions);
