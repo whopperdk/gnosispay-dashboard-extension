@@ -96,12 +96,12 @@ async function scrapeTransactionsFromTable() {
   rows.forEach((row, index) => {
     if (row.querySelector('th')) return;
     const cells = row.querySelectorAll('td');
-    if (cells.length < 6) return;
+    if (cells.length < 4) return; // Date, Category, Merchant, Amount
     const dateText = cells[0]?.textContent.trim() || '';
     const merchantText = cells[1]?.textContent.trim() || '';
     const amountText = cells[3]?.textContent.trim() || '';
     const mccText = cells[5]?.textContent.trim() || '';
-    const typeText = cells[2]?.textContent.trim().toUpperCase() || 'PURCHASE';
+    const typeText = cells[2]?.textContent.trim().toUpperCase() || 'PURCHASE'; // MCC column if present
     let createdAt = parseTransactionDate(dateText);
     let billingAmount = 0;
     try {
@@ -116,6 +116,10 @@ async function scrapeTransactionsFromTable() {
     if (amountText.includes('$')) currencySymbol = '$';
     else if (amountText.includes('£')) currencySymbol = '£';
     else if (amountText.includes('€')) currencySymbol = '€';
+    let status = 'Approved';
+    if (merchantText.includes('Pending')) status = 'Pending';
+    else if (merchantText.includes('Declined')) status = 'Declined';
+    else if (merchantText.includes('Refund')) status = 'Refund';
     transactions.push({
       createdAt,
       merchant: { name: merchantText },
@@ -128,12 +132,19 @@ async function scrapeTransactionsFromTable() {
   return transactions;
 }
 
-(function () {
+(async function () {
   let isInitialized = false;
-  let chartContainerExists = false;
-  let container = null;
-  let selectedHighlights = new Set();
-  let allTransactions = [];
+let chartContainerExists = false;
+let container = null;
+let selectedHighlights = new Set();
+let allTransactions = [];
+let merchantSearch = '';
+let selectedCountry = 'all';
+let selectedCategory = 'all';
+let selectedMonth = 'all'; // New: Month filter
+let selectedYear = 'all'; // New: Year filter
+let cashbackEligible = false;
+let noCashback = false;
 
   const style = document.createElement('style');
   style.textContent = `
@@ -195,7 +206,7 @@ async function scrapeTransactionsFromTable() {
     .visibility-controls button[data-active="true"] {
       background: #84ab4e;
       color: white;
-      box-shadow: inset 0 2px 4px rgba(0, 0粮, 0, 0.2);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
     }
     .visibility-controls button:hover {
       opacity: 0.9;
@@ -421,8 +432,304 @@ async function scrapeTransactionsFromTable() {
         padding: 15px;
       }
     }
+    .filter-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-bottom: 20px;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+    }
+    .search-bar input {
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      font-size: 14px;
+      width: 200px;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .filter-group label {
+      font-size: 14px;
+      color: #333;
+    }
+    .filter-group select {
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      background: white;
+      font-size: 14px;
+    }
+    .filter-group button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #f5f5f5;
+      color: #333;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .filter-group button[data-active="true"] {
+      background: #84ab4e;
+      color: white;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+    .filter-group button:hover {
+      opacity: 0.9;
+    }
+    @media (max-width: 600px) {
+      .filter-controls {
+        flex-direction: column;
+        align-items: center;
+      }
+      .search-bar input {
+        width: 100%;
+        max-width: 300px;
+      }
+    }
+      .transaction-filter-tool {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #f9f9f9;
+  padding: 15px;
+  margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.transaction-filter-tool h3 {
+  font-size: 16px;
+  font-weight: bold;
+  color: #333;
+  margin: 0 0 10px 0;
+  text-align: center;
+}
+.filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+@media (max-width: 600px) {
+  .transaction-filter-tool {
+    padding: 10px;
+  }
+  .filter-controls {
+    flex-direction: column;
+    align-items: center;
+  }
+  .search-bar input {
+    width: 100%;
+    max-width: 300px;
+  }
+}
   `;
   document.head.appendChild(style);
+
+  async function getTransactions() {
+    try {
+      const response = await fetch("https://app.gnosispay.com/api/v1/transactions", {
+        method: "GET",
+        headers: {},
+        referrer: "https://app.gnosispay.com/dashboard",
+        referrerPolicy: "strict-origin-when-cross-origin",
+        mode: "cors",
+        credentials: "include"
+      });
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      const data = await response.json();
+      const apiTransactions = Array.isArray(data) ? data : data.transactions || [];
+      const currencyMap = { 'GBP': '£', 'USD': '$', 'EUR': '€' };
+      const scrapedTransactions = await scrapeTransactionsFromTable();
+      return apiTransactions.map((tx, index) => {
+        const scrapedTx = scrapedTransactions[index] || {};
+        return {
+          createdAt: tx.createdAt || tx.clearedAt || scrapedTx.createdAt || "",
+          clearedAt: tx.clearedAt || tx.createdAt || scrapedTx.createdAt || "",
+          isPending: tx.isPending || scrapedTx.status === 'Pending' || false,
+          billingAmount: (parseFloat(tx.billingAmount) / 100).toString() || scrapedTx.billingAmount || "0",
+          billingCurrency: { symbol: currencyMap[tx.billingCurrency?.symbol] || scrapedTx.billingCurrency?.symbol || '£' },
+          mcc: tx.mcc || scrapedTx.mcc || "0000",
+          merchant: { name: scrapedTx.merchant?.name || tx.merchant?.name?.replace(/\s+/g, ' ').trim() || "" },
+          transactionType: tx.kind === "Payment" ? "PURCHASE" : tx.kind || scrapedTx.transactionType || "PURCHASE",
+          status: scrapedTx.status || tx.status || "Approved",
+          kind: tx.kind || "Payment",
+          country: tx.country || { name: scrapedTx.country?.name || 'Unknown' },
+          category: scrapedTx.category || getMccCategory(tx.mcc || '0000'),
+          rowIndex: scrapedTx.rowIndex || index
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      throw error;
+    }
+  }
+
+function filterTransactions(transactions) {
+  console.log('Filtering transactions:', transactions.map(tx => ({
+    rowIndex: tx.rowIndex,
+    merchant: tx.merchant?.name,
+    country: tx.country?.name,
+    category: getMccCategory(tx.mcc),
+    month: tx.createdAt ? new Date(tx.createdAt).getMonth() + 1 : null,
+    year: tx.createdAt ? new Date(tx.createdAt).getFullYear() : null,
+    mcc: tx.mcc,
+    transactionType: tx.transactionType,
+    isCashbackEligible: tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType)
+  })));
+
+  const filtered = transactions.filter(tx => {
+    const merchantMatch = !merchantSearch || (tx.merchant?.name || '').toLowerCase().includes(merchantSearch.toLowerCase());
+    const countryMatch = selectedCountry === 'all' || tx.country?.name === selectedCountry;
+    const categoryMatch = selectedCategory === 'all' || getMccCategory(tx.mcc) === selectedCategory;
+
+    // Handle month filter
+    let monthMatch = selectedMonth === 'all';
+    if (!monthMatch && tx.createdAt) {
+      const txDate = new Date(tx.createdAt);
+      if (!isNaN(txDate.getTime())) {
+        monthMatch = txDate.getMonth() + 1 === parseInt(selectedMonth, 10);
+      } else {
+        console.warn(`Invalid createdAt for transaction ${tx.rowIndex}: ${tx.createdAt}`);
+      }
+    }
+
+    // Handle year filter
+    let yearMatch = selectedYear === 'all';
+    if (!yearMatch && tx.createdAt) {
+      const txDate = new Date(tx.createdAt);
+      if (!isNaN(txDate.getTime())) {
+        yearMatch = txDate.getFullYear() === parseInt(selectedYear, 10);
+      } else {
+        console.warn(`Invalid createdAt for transaction ${tx.rowIndex}: ${tx.createdAt}`);
+      }
+    }
+
+    const isCashbackEligible = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
+    const cashbackMatch = 
+      (!cashbackEligible && !noCashback) || 
+      (cashbackEligible && isCashbackEligible) || 
+      (noCashback && !isCashbackEligible);
+
+    const matches = merchantMatch && countryMatch && categoryMatch && monthMatch && yearMatch && cashbackMatch;
+    if (!matches) {
+      console.log(`Transaction ${tx.rowIndex} filtered out:`, {
+        merchantMatch,
+        countryMatch,
+        categoryMatch,
+        monthMatch,
+        yearMatch,
+        cashbackMatch
+      });
+    }
+
+    return matches;
+  });
+
+  console.log('Filtered transactions:', filtered.map(tx => ({
+    rowIndex: tx.rowIndex,
+    merchant: tx.merchant?.name
+  })));
+  return filtered;
+}
+
+  function updateTableDisplay(transactions) {
+    console.log('Filtering table with transactions:', transactions.map(tx => ({
+      rowIndex: tx.rowIndex,
+      merchant: tx.merchant?.name,
+      mcc: tx.mcc,
+      category: getMccCategory(tx.mcc),
+      country: tx.country?.name
+    })));
+    const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
+    if (!table) {
+      console.warn('Table not found for update');
+      return;
+    }
+    const tbody = table.querySelector('tbody');
+    if (!tbody) {
+      console.warn('Table body not found');
+      return;
+    }
+    const rows = tbody.querySelectorAll('tr');
+    rows.forEach((row, index) => {
+      if (row.querySelector('th')) return;
+      const matchingTx = transactions.find(tx => tx.rowIndex === index);
+      row.style.display = matchingTx ? '' : 'none';
+    });
+    updateTableHighlights(transactions);
+    updateTableCashbackHighlights(transactions);
+  }
+
+function populateMonthDropdown(transactions) {
+  const monthSelect = container?.querySelector('#monthFilter');
+  if (!monthSelect) return;
+  const validTransactions = transactions.filter(tx => tx.createdAt && !isNaN(new Date(tx.createdAt).getTime()));
+  const months = [...new Set(
+    validTransactions.map(tx => new Date(tx.createdAt).getMonth() + 1)
+  )].sort((a, b) => a - b);
+  monthSelect.innerHTML = '<option value="all">All Months</option>';
+  months.forEach(month => {
+    const option = document.createElement('option');
+    const date = new Date(2000, month - 1, 1);
+    option.value = month;
+    option.textContent = date.toLocaleString('default', { month: 'long' });
+    monthSelect.appendChild(option);
+  });
+  console.log('Populated months:', months);
+}
+
+function populateYearDropdown(transactions) {
+  const yearSelect = container?.querySelector('#yearFilter');
+  if (!yearSelect) return;
+  const validTransactions = transactions.filter(tx => tx.createdAt && !isNaN(new Date(tx.createdAt).getTime()));
+  const years = [...new Set(
+    validTransactions.map(tx => new Date(tx.createdAt).getFullYear())
+  )].sort((a, b) => a - b);
+  yearSelect.innerHTML = '<option value="all">All Years</option>';
+  years.forEach(year => {
+    const option = document.createElement('option');
+    option.value = year;
+    option.textContent = year;
+    yearSelect.appendChild(option);
+  });
+  console.log('Populated years:', years);
+}
+
+  function populateCountryDropdown(transactions) {
+    const countrySelect = container?.querySelector('#countryFilter');
+    if (!countrySelect) return;
+    const countries = [...new Set(transactions.map(tx => tx.country?.name || 'Unknown').filter(name => name))].sort();
+    countrySelect.innerHTML = '<option value="all">All Countries</option>';
+    countries.forEach(country => {
+      const option = document.createElement('option');
+      option.value = country;
+      option.textContent = country;
+      countrySelect.appendChild(option);
+    });
+    console.log('Populated countries:', countries);
+  }
+
+  function populateCategoryDropdown(transactions) {
+    const categorySelect = container?.querySelector('#categoryFilter');
+    if (!categorySelect) return;
+    const categories = [...new Set(transactions.map(tx => getMccCategory(tx.mcc)))].sort();
+    categorySelect.innerHTML = '<option value="all">All Categories</option>';
+    categories.forEach(category => {
+      const option = document.createElement('option');
+      option.value = category;
+      option.textContent = category;
+      categorySelect.appendChild(option);
+    });
+    console.log('Populated categories:', categories);
+  }
 
   async function setupButtonListeners() {
     const findWalletButton = () => {
@@ -489,243 +796,563 @@ async function scrapeTransactionsFromTable() {
     });
   }
 
-  async function createSpendingChart(transactions) {
-    allTransactions = transactions;
-    if (!Array.isArray(transactions) || !transactions.length) {
-      container = document.createElement('div');
-      container.className = 'financial-container';
-      container.innerHTML = `<div class="chart-container"><div class="total-spent">Error: No valid transactions found</div></div>`;
-      const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
-      if (table && table.parentNode) table.parentNode.insertBefore(container, table);
-      else document.body.appendChild(container);
-      chartContainerExists = true;
-      return;
-    }
-    if (chartContainerExists) {
-      await updateChart(transactions);
-      await updateYearlyHistogram(transactions);
-      return;
-    }
-    const waitForContainer = () => {
-      return new Promise(resolve => {
-        const checkContainer = () => {
-          const transactionHeader = document.querySelector('.flex.flex-row.gap-4.sm\\:gap-0.justify-between.items-start.pb-5.sm\\:pb-0');
-          const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
-          if (transactionHeader || table) resolve({ transactionHeader, table });
-          else setTimeout(checkContainer, 200);
-        };
-        checkContainer();
-      });
-    };
-    const { transactionHeader, table } = await waitForContainer();
+async function createSpendingChart(transactions) {
+  allTransactions = transactions;
+  if (!Array.isArray(transactions) || !transactions.length) {
     container = document.createElement('div');
     container.className = 'financial-container';
-    container.innerHTML = `
-      <div class="chart-container">
-        <div class="visibility-controls">
-          <button id="toggleMonthlyChart" data-active="false">Monthly Chart</button>
-          <button id="toggleYearlyChart" data-active="false">Yearly Chart</button>
-          <button id="toggleCashbackCalculator" data-active="false">Cashback Calculator</button>
-          <button id="openVisaCalculator">Visa Exchange Rate</button>
-          <button id="aboutMeButton" title="About this extension">?</button>
-        </div>
-        <div class="chart-wrapper" id="monthlyChartWrapper" style="display: none;">
-          <div class="chart-title">Monthly Spending by Category</div>
-          <div class="chart-controls" style="display: none;">
-            <select id="monthSelect"></select>
-            <select id="yearSelect"></select>
-          </div>
-          <canvas id="spendingChart" width="260" height="260"></canvas>
-          <div class="total-spent" id="totalSpent"></div>
-          <div class="chart-legend" id="pieChartLegend"></div>
-        </div>
-        <div class="chart-wrapper" id="yearlyChartWrapper" style="display: none;">
-          <div class="chart-title">Yearly Spending by Category</div>
-          <canvas id="yearlyHistogram" width="260" height="260"></canvas>
-          <div class="total-spent" id="yearlyTotalSpent"></div>
-          <div class="chart-legend" id="histogramLegend"></div>
-        </div>
-        <div class="cashback-calculator" id="cashbackCalculatorWrapper" style="display: none;">
-          <div class="chart-title">Cashback Calculator</div>
-          <div class="calculator-controls">
-            <label>Week: <select id="weekSelect"></select></label>
-            <label>GNO Amount: <input type="number" id="gnoAmount" step="0.1" min="0" placeholder="e.g., 0.1"></label>
-            <label><input type="checkbox" id="ogNft"> Owns OG NFT (+1%)</label>
-            <button id="calculateCashback">Calculate</button>
-          </div>
-          <div class="cashback-result" id="cashbackResult">Cashback: £0.00 (0% rate)</div>
-        </div>
-        <div class="about-me-modal" id="aboutMeModal">
-          <div class="about-me-modal-content">
-            <button class="close-modal-button" id="closeAboutMeModal">×</button>
-            <h2>About me</h2>
-            <p>I have been a DeFi user for a fairly long time, and I'm most notably a member of Harvest's team (<b><u><a href="https://www.harvest.finance/" target="_blank" rel="noopener noreferrer">harvest.finance</a></u></b>). I have no association with Gnosis Pay's team. Feel free to reach out on Twitter (<b><u><a href="https://x.com/_kobrad" target="_blank" rel="noopener noreferrer">@_kobrad</a></b></u>) or Discord (<b>.kobrad</b>)</p>
-            <h3>Disclaimer</h3>
-            <p>This extension's purpose is to enhance the UI and give access to information that is mostly available via API. I have no access to your data as this runs in your browser however, a few words of caution are still necessary:</p>
-            <p>Not everyone on Web3 is here to help you. I might even say that there are more malicious agents than not. Hence, be very vigilant, especially when using code from third parties.</p>
-            <p>If you do want to use external code, it would be better to read the code first (or at least verify via AI if this is dangerous in any way). The code for the extension is contained within content.js. You're more than encouraged to have a look at the code.</p>
-            <p>This code will work as intended, as it is within a vanilla environment. If you make changes or add further extensions, I cannot guarantee that things won't break or sensitive data may become accessible (in particular if extensions are made on purpose by malicious agents). As always, be cautious.</p>
+    container.innerHTML = `<div class="chart-container"><div class="total-spent">Error: No valid transactions found</div></div>`;
+    const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
+    if (table && table.parentNode) table.parentNode.insertBefore(container, table);
+    else document.body.appendChild(container);
+    chartContainerExists = true;
+    return;
+  }
+  if (chartContainerExists) {
+    await updateChart(transactions);
+    await updateYearlyHistogram(transactions);
+    return;
+  }
+  const waitForContainer = () => {
+    return new Promise(resolve => {
+      const checkContainer = () => {
+        const transactionHeader = document.querySelector('.flex.flex-row.gap-4.sm\\:gap-0.justify-between.items-start.pb-5.sm\\:pb-0');
+        const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
+        if (transactionHeader || table) resolve({ transactionHeader, table });
+        else setTimeout(checkContainer, 200);
+      };
+      checkContainer();
+    });
+  };
+  const { transactionHeader, table } = await waitForContainer();
+  container = document.createElement('div');
+  container.className = 'financial-container';
+container.innerHTML = `
+    <div class="chart-container">
+      <div class="visibility-controls">
+        <button id="toggleMonthlyChart" data-active="false">Monthly Chart</button>
+        <button id="toggleYearlyChart" data-active="false">Yearly Chart</button>
+        <button id="toggleCashbackCalculator" data-active="false">Cashback Calculator</button>
+        <button id="toggleFilterTool" data-active="false">Transaction Filter</button>
+        <button id="openVisaCalculator">Visa Exchange Rate</button>
+        <button id="aboutMeButton" title="About this extension">?</button>
+      </div>
+      <div class="filter-tool-wrapper" id="filterToolWrapper" style="display: none;">
+        <div class="transaction-filter-tool">
+          <h3>Transaction Filter Tool</h3>
+          <div class="filter-controls">
+            <div class="search-bar">
+              <input type="text" id="merchantSearch" placeholder="Search by merchant name..." />
+            </div>
+            <div class="filter-group">
+              <label>Country:</label>
+              <select id="countryFilter">
+                <option value="all">All Countries</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Category:</label>
+              <select id="categoryFilter">
+                <option value="all">All Categories</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Month:</label>
+              <select id="monthFilter">
+                <option value="all">All Months</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Year:</label>
+              <select id="yearFilter">
+                <option value="all">All Years</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <button id="cashbackEligibleFilter" data-active="false">Cashback Eligible</button>
+              <button id="noCashbackFilter" data-active="false">No Cashback</button>
+            </div>
           </div>
         </div>
       </div>
-    `;
-    if (transactionHeader && transactionHeader.parentNode) transactionHeader.parentNode.insertBefore(container, transactionHeader.nextElementSibling);
-    else if (table) table.parentNode.insertBefore(container, table);
-    else document.body.appendChild(container);
-    chartContainerExists = true;
-    const monthSelect = container.querySelector('#monthSelect');
-    const yearSelect = container.querySelector('#yearSelect');
-    const weekSelect = container.querySelector('#weekSelect');
-    const validTransactions = transactions.filter(tx => tx.createdAt && !isNaN(new Date(tx.createdAt).getTime()));
-    const transactionYears = [...new Set(validTransactions.map(tx => new Date(tx.createdAt).getFullYear()))].sort((a, b) => a - b);
-    const mostRecentDate = validTransactions
-      .map(tx => new Date(tx.createdAt))
-      .sort((a, b) => b - a)[0] || new Date();
-    const defaultMonth = mostRecentDate.getMonth() + 1;
-    const defaultYear = mostRecentDate.getFullYear();
-    if (transactionYears.length > 0) {
-      transactionYears.forEach(year => {
-        const option = document.createElement('option');
-        option.value = year;
-        option.textContent = year;
-        if (year === defaultYear) option.selected = true;
-        yearSelect.appendChild(option);
-      });
-    } else {
+      <div class="chart-wrapper" id="monthlyChartWrapper" style="display: none;">
+        <div class="chart-title">Monthly Spending by Category</div>
+        <div class="chart-controls" style="display: none;">
+          <select id="monthSelect"></select>
+          <select id="yearSelect"></select>
+        </div>
+        <canvas id="spendingChart" width="260" height="260"></canvas>
+        <div class="total-spent" id="totalSpent"></div>
+        <div class="chart-legend" id="pieChartLegend"></div>
+      </div>
+      <div class="chart-wrapper" id="yearlyChartWrapper" style="display: none;">
+        <div class="chart-title">Yearly Spending by Category</div>
+        <canvas id="yearlyHistogram" width="260" height="260"></canvas>
+        <div class="total-spent" id="yearlyTotalSpent"></div>
+        <div class="chart-legend" id="histogramLegend"></div>
+      </div>
+      <div class="cashback-calculator" id="cashbackCalculatorWrapper" style="display: none;">
+        <div class="chart-title">Cashback Calculator</div>
+        <div class="calculator-controls">
+          <label>Week: <select id="weekSelect"></select></label>
+          <label>GNO Amount: <input type="number" id="gnoAmount" step="0.1" min="0" placeholder="e.g., 0.1"></label>
+          <label><input type="checkbox" id="ogNft"> Owns OG NFT (+1%)</label>
+          <button id="calculateCashback">Calculate</button>
+        </div>
+        <div class="cashback-result" id="cashbackResult">Cashback: £0.00 (0% rate)</div>
+      </div>
+      <div class="about-me-modal" id="aboutMeModal">
+        <div class="about-me-modal-content">
+          <button class="close-modal-button" id="closeAboutMeModal">×</button>
+          <h2>About me</h2>
+          <p>I have been a DeFi user for a fairly long time, and I'm most notably a member of Harvest's team (<b><u><a href="https://www.harvest.finance/" target="_blank" rel="noopener noreferrer">harvest.finance</a></u></b>). I have no association with Gnosis Pay's team. Feel free to reach out on Twitter (<b><u><a href="https://x.com/_kobrad" target="_blank" rel="noopener noreferrer">@_kobrad</a></b></u>) or Discord (<b>.kobrad</b>)</p>
+          <h3>Disclaimer</h3>
+          <p>This extension's purpose is to enhance the UI and give access to information that is mostly available via API. I have no access to your data as this runs in your browser however, a few words of caution are still necessary:</p>
+          <p>Not everyone on Web3 is here to help you. I might even say that there are more malicious agents than not. Hence, be very vigilant, especially when using code from third parties.</p>
+          <p>If you do want to use external code, it would be better to read the code first (or at least verify via AI if this is dangerous in any way). The code for the extension is contained within content.js. You're more than encouraged to have a look at the code.</p>
+          <p>This code will work as intended, as it is within a vanilla environment. If you make changes or add further extensions, I cannot guarantee that things won't break or sensitive data may become accessible (in particular if extensions are made on purpose by malicious agents). As always, be cautious.</p>
+        </div>
+      </div>
+    </div>
+  `;
+  if (transactionHeader && transactionHeader.parentNode) transactionHeader.parentNode.insertBefore(container, transactionHeader.nextElementSibling);
+  else if (table) table.parentNode.insertBefore(container, table);
+  else document.body.appendChild(container);
+  chartContainerExists = true;
+  const monthSelect = container.querySelector('#monthSelect');
+  const yearSelect = container.querySelector('#yearSelect');
+  const weekSelect = container.querySelector('#weekSelect');
+  const validTransactions = transactions.filter(tx => tx.createdAt && !isNaN(new Date(tx.createdAt).getTime()));
+  const transactionYears = [...new Set(validTransactions.map(tx => new Date(tx.createdAt).getFullYear()))].sort((a, b) => a - b);
+  const mostRecentDate = validTransactions
+    .map(tx => new Date(tx.createdAt))
+    .sort((a, b) => b - a)[0] || new Date();
+  const defaultMonth = mostRecentDate.getMonth() + 1;
+  const defaultYear = mostRecentDate.getFullYear();
+  if (transactionYears.length > 0) {
+    transactionYears.forEach(year => {
       const option = document.createElement('option');
-      option.value = defaultYear;
-      option.textContent = defaultYear;
-      option.selected = true;
+      option.value = year;
+      option.textContent = year;
+      if (year === defaultYear) option.selected = true;
       yearSelect.appendChild(option);
-    }
-    function populateMonthDropdown(selectedYear) {
-      monthSelect.innerHTML = '';
-      const monthsWithTransactions = [...new Set(
-        validTransactions
-          .filter(tx => new Date(tx.createdAt).getFullYear() === parseInt(selectedYear))
-          .map(tx => new Date(tx.createdAt).getMonth() + 1)
-      )].sort((a, b) => a - b);
-      if (monthsWithTransactions.length === 0) {
-        for (let i = 0; i < 12; i++) {
-          const option = document.createElement('option');
-          const date = new Date(2000, i, 1);
-          option.value = i + 1;
-          option.textContent = date.toLocaleString('default', { month: 'long' });
-          if (i + 1 === defaultMonth && selectedYear == defaultYear) option.selected = true;
-          monthSelect.appendChild(option);
-        }
-      } else {
-        monthsWithTransactions.forEach(month => {
-          const option = document.createElement('option');
-          const date = new Date(2000, month - 1, 1);
-          option.value = month;
-          option.textContent = date.toLocaleString('default', { month: 'long' });
-          if (month === defaultMonth && selectedYear == defaultYear) option.selected = true;
-          monthSelect.appendChild(option);
-        });
-      }
-    }
-    function populateWeekDropdown(transactions) {
-      weekSelect.innerHTML = '';
-      const validTxs = transactions.filter(tx => tx.clearedAt && !isNaN(new Date(tx.clearedAt).getTime()));
-      if (!validTxs.length) {
+    });
+  } else {
+    const option = document.createElement('option');
+    option.value = defaultYear;
+    option.textContent = defaultYear;
+    option.selected = true;
+    yearSelect.appendChild(option);
+  }
+  function populateMonthDropdownChart(selectedYear) {
+    monthSelect.innerHTML = '';
+    const monthsWithTransactions = [...new Set(
+      validTransactions
+        .filter(tx => new Date(tx.createdAt).getFullYear() === parseInt(selectedYear))
+        .map(tx => new Date(tx.createdAt).getMonth() + 1)
+    )].sort((a, b) => a - b);
+    if (monthsWithTransactions.length === 0) {
+      for (let i = 0; i < 12; i++) {
         const option = document.createElement('option');
-        option.value = '';
-        option.textContent = 'No eligible weeks';
-        option.disabled = true;
-        option.selected = true;
-        weekSelect.appendChild(option);
-        return;
+        const date = new Date(2000, i, 1);
+        option.value = i + 1;
+        option.textContent = date.toLocaleString('default', { month: 'long' });
+        if (i + 1 === defaultMonth && selectedYear == defaultYear) option.selected = true;
+        monthSelect.appendChild(option);
       }
-      const weeks = new Set();
-      validTxs.forEach(tx => {
-        const isEligible = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
-        if (!isEligible) return;
-        const clearedDate = new Date(tx.clearedAt);
-        const dayOfWeek = clearedDate.getUTCDay();
-        const sunday = new Date(clearedDate);
-        sunday.setUTCDate(clearedDate.getUTCDate() - dayOfWeek);
-        sunday.setUTCHours(0, 0, 0, 0);
-        const saturday = new Date(sunday);
-        saturday.setUTCDate(sunday.getUTCDate() + 6);
-        saturday.setUTCHours(23, 59, 59, 999);
-        const weekKey = `${sunday.toISOString()}|${saturday.toISOString()}`;
-        weeks.add(weekKey);
-      });
-      const sortedWeeks = [...weeks].sort((a, b) => new Date(a.split('|')[0]) - new Date(b.split('|')[0])).reverse();
-      sortedWeeks.forEach((weekKey, index) => {
-        const [start, end] = weekKey.split('|').map(d => new Date(d));
+    } else {
+      monthsWithTransactions.forEach(month => {
         const option = document.createElement('option');
-        option.value = weekKey;
-        option.textContent = `${start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
-        if (index === 0) option.selected = true;
-        weekSelect.appendChild(option);
+        const date = new Date(2000, month - 1, 1);
+        option.value = month;
+        option.textContent = date.toLocaleString('default', { month: 'long' });
+        if (month === defaultMonth && selectedYear == defaultYear) option.selected = true;
+        monthSelect.appendChild(option);
       });
-      if (!sortedWeeks.length) {
-        const option = document.createElement('option');
-        option.value = '';
-        option.textContent = 'No eligible weeks';
-        option.disabled = true;
-        option.selected = true;
-        weekSelect.appendChild(option);
-      }
     }
-    populateMonthDropdown(defaultYear);
-    populateWeekDropdown(transactions);
-    const waitForControls = () => {
-      return new Promise((resolve, reject) => {
-        let attempts = 0;
-        const maxAttempts = 50;
-        const checkControls = () => {
-          if (
-            monthSelect &&
-            yearSelect &&
-            weekSelect &&
-            monthSelect.options.length > 0 &&
-            yearSelect.options.length > 0
-          ) resolve();
-          else {
-            attempts++;
-            if (attempts >= maxAttempts) reject(new Error('Chart controls not found or not populated'));
-            else setTimeout(checkControls, 100);
-          }
-        };
-        checkControls();
-      });
-    };
-    try {
-      await waitForControls();
-    } catch (error) {
-      container.querySelector('#totalSpent').textContent = 'Error: Failed to initialize chart controls';
+    console.log('Populated chart months for year:', selectedYear, 'months:', monthsWithTransactions);
+  }
+  function populateWeekDropdown(transactions) {
+    weekSelect.innerHTML = '';
+    const validTxs = transactions.filter(tx => tx.clearedAt && !isNaN(new Date(tx.clearedAt).getTime()));
+    if (!validTxs.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No eligible weeks';
+      option.disabled = true;
+      option.selected = true;
+      weekSelect.appendChild(option);
+      console.log('Populated weeks: 0 (no valid transactions)');
       return;
     }
-    function setupVisibilityToggles() {
-      const monthlyChartButton = container.querySelector('#toggleMonthlyChart');
-      const yearlyChartButton = container.querySelector('#toggleYearlyChart');
-      const cashbackCalculatorButton = container.querySelector('#toggleCashbackCalculator');
-      const visaCalculatorButton = container.querySelector('#openVisaCalculator');
-      const aboutMeButton = container.querySelector('#aboutMeButton');
-      const aboutMeModal = container.querySelector('#aboutMeModal');
-      const closeModalButton = container.querySelector('#closeAboutMeModal');
-      const monthlyChartWrapper = container.querySelector('#monthlyChartWrapper');
-      const yearlyChartWrapper = container.querySelector('#yearlyChartWrapper');
-      const cashbackCalculatorWrapper = container.querySelector('#cashbackCalculatorWrapper');
-      const chartControls = container.querySelector('.chart-controls');
-      function toggleButton(button, wrapper, additionalWrapper = null) {
-        const isActive = button.getAttribute('data-active') === 'true';
-        button.setAttribute('data-active', !isActive);
-        wrapper.style.display = isActive ? 'none' : 'block';
-        if (additionalWrapper) additionalWrapper.style.display = isActive ? 'none' : 'flex';
-      }
-      if (monthlyChartButton) monthlyChartButton.addEventListener('click', () => toggleButton(monthlyChartButton, monthlyChartWrapper, chartControls));
-      if (yearlyChartButton) yearlyChartButton.addEventListener('click', () => toggleButton(yearlyChartButton, yearlyChartWrapper));
-      if (cashbackCalculatorButton) cashbackCalculatorButton.addEventListener('click', () => toggleButton(cashbackCalculatorButton, cashbackCalculatorWrapper));
-      if (visaCalculatorButton) visaCalculatorButton.addEventListener('click', () => window.open('https://www.visa.co.uk/support/consumer/travel-support/exchange-rate-calculator.html', '_blank'));
-      if (aboutMeButton && aboutMeModal) aboutMeButton.addEventListener('click', () => aboutMeModal.style.display = 'flex');
-      if (closeModalButton && aboutMeModal) closeModalButton.addEventListener('click', () => aboutMeModal.style.display = 'none');
-      if (aboutMeModal) aboutMeModal.addEventListener('click', (event) => { if (event.target === aboutMeModal) aboutMeModal.style.display = 'none'; });
+    const weeks = new Set();
+    validTxs.forEach(tx => {
+      const isEligible = tx.mcc &&
+        !NO_CASHBACK_MCCS.includes(tx.mcc) &&
+        !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
+      if (!isEligible) return;
+      const clearedDate = new Date(tx.clearedAt);
+      const dayOfWeek = clearedDate.getUTCDay();
+      const sunday = new Date(clearedDate);
+      sunday.setUTCDate(clearedDate.getUTCDate() - dayOfWeek);
+      sunday.setUTCHours(0, 0, 0, 0);
+      const saturday = new Date(sunday);
+      saturday.setUTCDate(sunday.getUTCDate() + 6);
+      saturday.setUTCHours(23, 59, 59, 999);
+      const weekKey = `${sunday.toISOString()}|${saturday.toISOString()}`;
+      weeks.add(weekKey);
+    });
+    const sortedWeeks = [...weeks].sort((a, b) => new Date(a.split('|')[0]) - new Date(b.split('|')[0])).reverse();
+    sortedWeeks.forEach((weekKey, index) => {
+      const [start, end] = weekKey.split('|').map(d => new Date(d));
+      const option = document.createElement('option');
+      option.value = weekKey;
+      option.textContent = `${start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+      if (index === 0) option.selected = true;
+      weekSelect.appendChild(option);
+    });
+    if (!sortedWeeks.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No eligible weeks';
+      option.disabled = true;
+      option.selected = true;
+      weekSelect.appendChild(option);
     }
+    console.log(`Populated weeks: ${sortedWeeks.length}`);
+  }
+  // Populate filter dropdowns
+  console.log('Populating filter dropdowns with transactions:', transactions.length);
+  populateMonthDropdown(transactions);
+  populateYearDropdown(transactions);
+  populateCountryDropdown(transactions);
+  populateCategoryDropdown(transactions);
+  // Populate chart and week dropdowns
+  populateMonthDropdownChart(defaultYear);
+  populateWeekDropdown(transactions);
+  const waitForControls = () => {
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      const maxAttempts = 50;
+      const checkControls = () => {
+        const monthFilter = container.querySelector('#monthFilter');
+        const yearFilter = container.querySelector('#yearFilter');
+        if (
+          monthSelect &&
+          yearSelect &&
+          weekSelect &&
+          monthSelect.options.length > 0 &&
+          yearSelect.options.length > 0 &&
+          monthFilter &&
+          monthFilter.options.length > 1 &&
+          yearFilter &&
+          yearFilter.options.length > 1
+        ) resolve();
+        else {
+          attempts++;
+          if (attempts >= maxAttempts) reject(new Error('Chart controls or filter dropdowns not found or not populated'));
+          else setTimeout(checkControls, 100);
+        }
+      };
+      checkControls();
+    });
+  };
+  try {
+    await waitForControls();
+    console.log('Chart controls and filter dropdowns ready, setting up listeners');
+    setupFilterListeners();
     setupVisibilityToggles();
+  } catch (error) {
+    container.querySelector('#totalSpent').textContent = 'Error: Failed to initialize chart controls';
+    console.error('Failed to initialize chart controls:', error);
+    return;
+  }
+  await updateChart(transactions);
+  await updateYearlyHistogram(transactions);
+
+  function setupVisibilityToggles() {
+  const monthlyChartButton = container.querySelector('#toggleMonthlyChart');
+  const yearlyChartButton = container.querySelector('#toggleYearlyChart');
+  const cashbackCalculatorButton = container.querySelector('#toggleCashbackCalculator');
+  const filterToolButton = container.querySelector('#toggleFilterTool');
+  const visaCalculatorButton = container.querySelector('#openVisaCalculator');
+  const aboutMeButton = container.querySelector('#aboutMeButton');
+  const aboutMeModal = container.querySelector('#aboutMeModal');
+  const closeModalButton = container.querySelector('#closeAboutMeModal');
+  const monthlyChartWrapper = container.querySelector('#monthlyChartWrapper');
+  const yearlyChartWrapper = container.querySelector('#yearlyChartWrapper');
+  const cashbackCalculatorWrapper = container.querySelector('#cashbackCalculatorWrapper');
+  const filterToolWrapper = container.querySelector('#filterToolWrapper');
+  const chartControls = container.querySelector('.chart-controls');
+
+  console.log('Setting up visibility toggles:', {
+    monthlyChartButton: !!monthlyChartButton,
+    yearlyChartButton: !!yearlyChartButton,
+    cashbackCalculatorButton: !!cashbackCalculatorButton,
+    visaCalculatorButton: !!visaCalculatorButton,
+    aboutMeButton: !!aboutMeButton,
+    aboutMeModal: !!aboutMeModal,
+    closeModalButton: !!closeModalButton,
+    monthlyChartWrapper: !!monthlyChartWrapper,
+    yearlyChartWrapper: !!yearlyChartWrapper,
+    cashbackCalculatorWrapper: !!cashbackCalculatorWrapper,
+    chartControls: !!chartControls
+  });
+
+function resetFilters() {
+    console.log('Resetting filters');
+    merchantSearch = '';
+    selectedCountry = 'all';
+    selectedCategory = 'all';
+    selectedMonth = 'all';
+    selectedYear = 'all';
+    cashbackEligible = false;
+    noCashback = false;
+
+    const merchantSearchInput = container.querySelector('#merchantSearch');
+    const countrySelect = container.querySelector('#countryFilter');
+    const categorySelect = container.querySelector('#categoryFilter');
+    const monthSelect = container.querySelector('#monthFilter');
+    const yearSelect = container.querySelector('#yearFilter');
+    const cashbackEligibleButton = container.querySelector('#cashbackEligibleFilter');
+    const noCashbackButton = container.querySelector('#noCashbackFilter');
+
+    if (merchantSearchInput) merchantSearchInput.value = '';
+    if (countrySelect) countrySelect.value = 'all';
+    if (categorySelect) categorySelect.value = 'all';
+    if (monthSelect) monthSelect.value = 'all';
+    if (yearSelect) yearSelect.value = 'all';
+    if (cashbackEligibleButton) cashbackEligibleButton.setAttribute('data-active', 'false');
+    if (noCashbackButton) noCashbackButton.setAttribute('data-active', 'false');
+
+    const filteredTransactions = filterTransactions(allTransactions);
+    updateTableDisplay(filteredTransactions);
+    updateChart(filteredTransactions);
+    updateYearlyHistogram(filteredTransactions);
+    populateWeekDropdown(filteredTransactions);
+    console.log('Filters reset, table and charts updated');
+  }
+
+  function toggleButton(button, wrapper, additionalWrapper = null) {
+    if (!button || !wrapper) {
+      console.warn('Toggle button or wrapper not found:', { buttonId: button?.id, wrapperId: wrapper?.id });
+      return;
+    }
+    const isActive = button.getAttribute('data-active') === 'true';
+    button.setAttribute('data-active', !isActive);
+    wrapper.style.display = isActive ? 'none' : 'block';
+    if (additionalWrapper) {
+      additionalWrapper.style.display = isActive ? 'none' : 'flex';
+    }
+    console.log(`Toggled ${button.id}: active=${!isActive}, wrapper display=${wrapper.style.display}`);
+    if (button === cashbackCalculatorButton) {
+      if (isActive) {
+        // Untoggling: Hide calculator and clear hand emojis
+        clearCashbackHighlights();
+      }
+      if (!isActive) {
+        // Toggling on: Reset filters
+        resetFilters();
+      }
+    } else if (button === filterToolButton) {
+      if (isActive) {
+        // Untoggling: Reset filters
+        resetFilters();
+      }
+    }
+  }
+
+  if (monthlyChartButton && monthlyChartWrapper && chartControls) {
+    monthlyChartButton.addEventListener('click', () => toggleButton(monthlyChartButton, monthlyChartWrapper, chartControls));
+  } else {
+    console.warn('Monthly chart toggle setup failed:', {
+      monthlyChartButton: !!monthlyChartButton,
+      monthlyChartWrapper: !!monthlyChartWrapper,
+      chartControls: !!chartControls
+    });
+  }
+
+  if (yearlyChartButton && yearlyChartWrapper) {
+    yearlyChartButton.addEventListener('click', () => toggleButton(yearlyChartButton, yearlyChartWrapper));
+  } else {
+    console.warn('Yearly chart toggle setup failed:', {
+      yearlyChartButton: !!yearlyChartButton,
+      yearlyChartWrapper: !!yearlyChartWrapper
+    });
+  }
+
+  if (cashbackCalculatorButton && cashbackCalculatorWrapper) {
+    cashbackCalculatorButton.addEventListener('click', () => toggleButton(cashbackCalculatorButton, cashbackCalculatorWrapper));
+  } else {
+    console.warn('Cashback calculator toggle setup failed:', {
+      cashbackCalculatorButton: !!cashbackCalculatorButton,
+      cashbackCalculatorWrapper: !!cashbackCalculatorWrapper
+    });
+  }
+
+  if (filterToolButton && filterToolWrapper) {
+    filterToolButton.addEventListener('click', () => toggleButton(filterToolButton, filterToolWrapper));
+  } else {
+    console.warn('Filter tool toggle setup failed:', {
+      filterToolButton: !!filterToolButton,
+      filterToolWrapper: !!filterToolWrapper
+    });
+  }
+
+  if (visaCalculatorButton) {
+    visaCalculatorButton.addEventListener('click', () => {
+      console.log('Opening Visa Exchange Rate calculator');
+      window.open('https://www.visa.co.uk/support/consumer/travel-support/exchange-rate-calculator.html', '_blank');
+    });
+  } else {
+    console.warn('Visa calculator button not found');
+  }
+
+  if (aboutMeButton && aboutMeModal) {
+    aboutMeButton.addEventListener('click', () => {
+      console.log('Showing About Me modal');
+      aboutMeModal.style.display = 'flex';
+    });
+  } else {
+    console.warn('About Me button or modal not found:', {
+      aboutMeButton: !!aboutMeButton,
+      aboutMeModal: !!aboutMeModal
+    });
+  }
+
+  if (closeModalButton && aboutMeModal) {
+    closeModalButton.addEventListener('click', () => {
+      console.log('Closing About Me modal');
+      aboutMeModal.style.display = 'none';
+    });
+  } else {
+    console.warn('Close modal button or modal not found:', {
+      closeModalButton: !!closeModalButton,
+      aboutMeModal: !!aboutMeModal
+    });
+  }
+
+  if (aboutMeModal) {
+    aboutMeModal.addEventListener('click', (event) => {
+      if (event.target === aboutMeModal) {
+        console.log('Closing About Me modal via backdrop click');
+        aboutMeModal.style.display = 'none';
+      }
+    });
+  } else {
+    console.warn('About Me modal not found for backdrop click');
+  }
+}
+
+function setupFilterListeners() {
+  const merchantSearchInput = container.querySelector('#merchantSearch');
+  const countrySelect = container.querySelector('#countryFilter');
+  const categorySelect = container.querySelector('#categoryFilter');
+  const monthSelect = container.querySelector('#monthFilter');
+  const yearSelect = container.querySelector('#yearFilter');
+  const cashbackEligibleButton = container.querySelector('#cashbackEligibleFilter');
+  const noCashbackButton = container.querySelector('#noCashbackFilter');
+
+  console.log('Setting up filter listeners:', {
+    merchantSearchInput: !!merchantSearchInput,
+    countrySelect: !!countrySelect,
+    categorySelect: !!categorySelect,
+    monthSelect: !!monthSelect,
+    yearSelect: !!yearSelect,
+    cashbackEligibleButton: !!cashbackEligibleButton,
+    noCashbackButton: !!noCashbackButton
+  });
+
+  function applyFilters() {
+    console.log('Applying filters with state:', {
+      merchantSearch,
+      selectedCountry,
+      selectedCategory,
+      selectedMonth,
+      selectedYear,
+      cashbackEligible,
+      noCashback
+    });
+    const filteredTransactions = filterTransactions(allTransactions);
+    updateTableDisplay(filteredTransactions);
+    updateChart(filteredTransactions);
+    updateYearlyHistogram(filteredTransactions);
+    populateWeekDropdown(filteredTransactions);
+  }
+
+  if (merchantSearchInput) {
+    merchantSearchInput.addEventListener('input', () => {
+      merchantSearch = merchantSearchInput.value.trim();
+      console.log('Merchant search updated:', merchantSearch);
+      applyFilters();
+    });
+  } else {
+    console.warn('Merchant search input not found');
+  }
+
+  if (countrySelect) {
+    countrySelect.addEventListener('change', () => {
+      selectedCountry = countrySelect.value;
+      console.log('Country filter updated:', selectedCountry);
+      applyFilters();
+    });
+  } else {
+    console.warn('Country select not found');
+  }
+
+  if (categorySelect) {
+    categorySelect.addEventListener('change', () => {
+      selectedCategory = categorySelect.value;
+      console.log('Category filter updated:', selectedCategory);
+      applyFilters();
+    });
+  } else {
+    console.warn('Category select not found');
+  }
+
+  if (monthSelect) {
+    monthSelect.addEventListener('change', () => {
+      selectedMonth = monthSelect.value;
+      console.log('Month filter updated:', selectedMonth);
+      applyFilters();
+    });
+  } else {
+    console.warn('Month select not found');
+  }
+
+  if (yearSelect) {
+    yearSelect.addEventListener('change', () => {
+      selectedYear = yearSelect.value;
+      console.log('Year filter updated:', selectedYear);
+      applyFilters();
+    });
+  } else {
+    console.warn('Year select not found');
+  }
+
+  if (cashbackEligibleButton) {
+    cashbackEligibleButton.addEventListener('click', () => {
+      cashbackEligible = !cashbackEligible;
+      cashbackEligibleButton.setAttribute('data-active', cashbackEligible);
+      console.log('Cashback eligible filter updated:', cashbackEligible);
+      applyFilters();
+    });
+  } else {
+    console.warn('Cashback eligible button not found');
+  }
+
+  if (noCashbackButton) {
+    noCashbackButton.addEventListener('click', () => {
+      noCashback = !noCashback;
+      noCashbackButton.setAttribute('data-active', noCashback);
+      console.log('No cashback filter updated:', noCashback);
+      applyFilters();
+    });
+  } else {
+    console.warn('No cashback button not found');
+  }
+}
+    setupFilterListeners();
     function calculateCashbackRate(gnoAmount, hasOgNft) {
       let baseRate = 0;
       if (gnoAmount >= 0.1 && gnoAmount < 1) baseRate = 1 + ((gnoAmount - 0.1) / (1 - 0.1)) * (2 - 1);
@@ -736,111 +1363,199 @@ async function scrapeTransactionsFromTable() {
       const totalRate = (hasOgNft && gnoAmount >= 0.1) ? Math.min(baseRate + 1, 5) : baseRate;
       return totalRate / 100;
     }
-    function calculateCashback(transactions, weekPeriod, gnoAmount, hasOgNft) {
-      let from = null;
-      let to = null;
-      if (weekPeriod) {
-        const [start, end] = weekPeriod.split('|').map(d => {
-          const date = new Date(d);
-          if (isNaN(date.getTime())) {
-            console.warn(`Invalid weekPeriod date: ${d}`);
-            return null;
-          }
-          date.setUTCHours(0, 0, 0, 0);
-          return date;
-        });
-        if (start && end) {
-          from = start;
-          to = new Date(end.getTime() + 24 * 60 * 60 * 1000 - 1);
-        } else {
-          console.warn('Invalid weekPeriod, no date filtering applied');
-          return { totalCashback: 0, cashbackRate: 0, filteredTransactions: [], currency: '£' };
-        }
-      } else {
-        console.warn('No weekPeriod provided, no date filtering applied');
-        return { totalCashback: 0, cashbackRate: 0, filteredTransactions: [], currency: '£' };
+function calculateCashback(transactions, weekPeriod, gnoAmount, hasOgNft) {
+  let from = null;
+  let to = null;
+  if (weekPeriod) {
+    const [start, end] = weekPeriod.split('|').map(d => {
+      const date = new Date(d);
+      if (isNaN(date.getTime())) {
+        console.warn(`Invalid weekPeriod date: ${d}`);
+        return null;
       }
-      const filteredTransactions = transactions.filter(tx => {
-        const dateField = tx.clearedAt || tx.createdAt;
-        if (!dateField) return false;
-        if (tx.isPending || tx.status === 'Reversal' || tx.status === 'Other' || tx.kind === 'Reversal') return false;
-        const txDate = new Date(dateField);
-        if (isNaN(txDate.getTime())) return false;
-        const isInDateRange = txDate >= from && txDate <= to;
-        const isEligibleMcc = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc);
-        const isEligibleType = tx.transactionType && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
-        return isInDateRange && isEligibleMcc && isEligibleType;
-      });
-      const cashbackRate = calculateCashbackRate(gnoAmount, hasOgNft);
-      const totalCashback = filteredTransactions.reduce((sum, tx) => {
-        const amount = parseFloat(tx.billingAmount) || 0;
-        return sum + amount * cashbackRate;
-      }, 0);
-      const currencySymbol = filteredTransactions[0]?.billingCurrency?.symbol || '£';
-      return { totalCashback, cashbackRate: cashbackRate * 100, filteredTransactions, currency: currencySymbol };
+      date.setUTCHours(0, 0, 0, 0);
+      return date;
+    });
+    if (start && end) {
+      from = start;
+      to = new Date(end.getTime() + 24 * 60 * 60 * 1000 - 1);
+    } else {
+      console.warn('Invalid weekPeriod, no date filtering applied');
+      return { totalCashback: 0, cashbackRate: 0, filteredTransactions: [], currency: '£' };
     }
-    function updateTableCashbackHighlights(filteredTransactions) {
-      const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
-      if (!table) {
-        console.warn('Table not found for cashback highlights');
-        return;
+  } else {
+    console.warn('No weekPeriod provided, no date filtering applied');
+    return { totalCashback: 0, cashbackRate: 0, filteredTransactions: [], currency: '£' };
+  }
+  const filteredTransactions = transactions.filter(tx => {
+    const dateField = tx.clearedAt || tx.createdAt;
+    if (!dateField) {
+      console.warn(`Transaction ${tx.rowIndex} skipped: No valid date field`);
+      return false;
+    }
+    if (tx.isPending || tx.status === 'Reversal' || tx.status === 'Other' || tx.kind === 'Reversal') { // Reverted to 'Other'
+      console.log(`Transaction ${tx.rowIndex} skipped: Invalid status or kind`);
+      return false;
+    }
+    const txDate = new Date(dateField);
+    if (isNaN(txDate.getTime())) {
+      console.warn(`Transaction ${tx.rowIndex} skipped: Invalid date ${dateField}`);
+      return false;
+    }
+    const isInDateRange = txDate >= from && txDate <= to;
+    const isEligibleMcc = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc);
+    const isEligibleType = tx.transactionType && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
+    console.log(`Transaction ${tx.rowIndex} eligibility:`, {
+      isInDateRange,
+      isEligibleMcc,
+      isEligibleType,
+      txDate: txDate.toISOString(),
+      mcc: tx.mcc,
+      type: tx.transactionType
+    });
+    return isInDateRange && isEligibleMcc && isEligibleType;
+  });
+  console.log('Filtered transactions for cashback:', filteredTransactions.map(tx => ({
+    rowIndex: tx.rowIndex,
+    merchant: tx.merchant?.name,
+    date: tx.clearedAt || tx.createdAt,
+    amount: tx.billingAmount,
+    mcc: tx.mcc,
+    status: tx.status,
+    kind: tx.kind
+  })));
+  const cashbackRate = calculateCashbackRate(gnoAmount, hasOgNft);
+  const totalCashback = filteredTransactions.reduce((sum, tx) => {
+    const amount = parseFloat(tx.billingAmount) || 0;
+    return sum + amount * cashbackRate;
+  }, 0);
+  const currencySymbol = filteredTransactions[0]?.billingCurrency?.symbol || '£';
+  return { totalCashback, cashbackRate: cashbackRate * 100, filteredTransactions, currency: currencySymbol };
+}
+
+function clearCashbackHighlights() {
+  console.log('Hiding cashback highlight emojis');
+  const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
+  if (!table) {
+    console.warn('Table not found for hiding cashback highlights');
+    return;
+  }
+  const emojis = table.querySelectorAll('.hand-emoji');
+  console.log(`Found ${emojis.length} hand emojis in table`);
+  emojis.forEach((emoji, index) => {
+    emoji.style.display = 'none';
+    console.log(`Hid hand emoji ${index}`);
+  });
+}
+
+function updateTableCashbackHighlights(filteredTransactions) {
+  console.log('Updating cashback highlights for transactions:', filteredTransactions.map(tx => ({
+    rowIndex: tx.rowIndex,
+    merchant: tx.merchant?.name,
+    date: tx.createdAt, // Reverted to createdAt
+    amount: tx.billingAmount,
+    mcc: tx.mcc,
+    status: tx.status,
+    kind: tx.kind
+  })));
+  const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
+  if (!table) {
+    console.warn('Table not found for cashback highlights');
+    return;
+  }
+  const rows = table.querySelectorAll('tbody tr');
+  console.log(`Found ${rows.length} table rows`);
+  rows.forEach((row, rowIndex) => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length < 6) {
+      console.warn(`Row ${rowIndex}: Insufficient cells (${cells.length})`);
+      return;
+    }
+    const dateText = cells[0]?.textContent.trim() || '';
+    const merchantText = cells[2]?.textContent.trim() || '';
+    const amountText = cells[3]?.textContent.trim() || '';
+    let mccText = cells[5]?.textContent.trim() || '';
+    if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED')) {
+      console.log(`Row ${rowIndex}: Skipping due to Pending/Declined status`);
+      return;
+    }
+    const tableDate = parseTransactionDate(dateText);
+    if (!tableDate) {
+      console.warn(`Row ${rowIndex}: Invalid date "${dateText}"`);
+      return;
+    }
+    const parsedTableDate = new Date(tableDate);
+    if (isNaN(parsedTableDate.getTime())) {
+      console.warn(`Row ${rowIndex}: Parsed date invalid "${tableDate}"`);
+      return;
+    }
+    let billingAmount = 0;
+    try {
+      const amountMatch = amountText.match(/[\d,.]+/);
+      billingAmount = amountMatch ? parseFloat(amountMatch[0].replace(/,/g, '')) : 0;
+    } catch (error) {
+      console.warn(`Row ${rowIndex}: Failed to parse amount "${amountText}"`);
+      return;
+    }
+    let mcc = '0000';
+    try {
+      if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
+    } catch (error) {
+      console.warn(`Row ${rowIndex}: Failed to parse MCC "${mccText}"`);
+      return;
+    }
+    const isIncluded = filteredTransactions.some(tx => {
+      const txCreatedAt = new Date(tx.createdAt); // Reverted to createdAt
+      if (isNaN(txCreatedAt.getTime())) {
+        console.warn(`Transaction ${tx.rowIndex}: Invalid transaction date "${tx.createdAt}"`);
+        return false;
       }
-      const rows = table.querySelectorAll('tbody tr');
-      rows.forEach((row, rowIndex) => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 6) return;
-        const dateText = cells[0]?.textContent.trim() || '';
-        const merchantText = cells[2]?.textContent.trim() || '';
-        const amountText = cells[3]?.textContent.trim() || '';
-        const mccText = cells[5]?.textContent.trim() || '';
-        if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED')) return;
-        const tableDate = parseTransactionDate(dateText);
-        if (!tableDate) return;
-        const parsedTableDate = new Date(tableDate);
-        if (isNaN(parsedTableDate.getTime())) return;
-        let billingAmount = 0;
-        try {
-          const amountMatch = amountText.match(/[\d,.]+/);
-          billingAmount = amountMatch ? parseFloat(amountMatch[0].replace(/,/g, '')) : 0;
-        } catch (error) {
-          console.warn(`Row ${rowIndex}: Failed to parse amount "${amountText}"`);
-          return;
-        }
-        let mcc = '0000';
-        try {
-          if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
-        } catch (error) {
-          console.warn(`Row ${rowIndex}: Failed to parse MCC "${mccText}"`);
-          return;
-        }
-        const isIncluded = filteredTransactions.some(tx => {
-          const txCreatedAt = new Date(tx.createdAt);
-          if (isNaN(txCreatedAt.getTime())) return false;
-          const isSameDate =
-            txCreatedAt.getUTCFullYear() === parsedTableDate.getUTCFullYear() &&
-            txCreatedAt.getUTCMonth() === parsedTableDate.getUTCMonth() &&
-            txCreatedAt.getUTCDate() === parsedTableDate.getUTCDate();
-          const isSameAmount = Math.abs(parseFloat(tx.billingAmount) - billingAmount) < 0.5;
-          const normalizedMerchantText = merchantText.replace(/\s+/g, ' ').trim().replace(/ - .*$/, '');
-          const normalizedTxMerchant = tx.merchant?.name?.replace(/\s+/g, ' ').trim() || '';
-          const merchantMatch = normalizedMerchantText && normalizedTxMerchant
-            ? normalizedTxMerchant.toLowerCase().includes(normalizedMerchantText.toLowerCase()) ||
-              normalizedMerchantText.toLowerCase().includes(normalizedTxMerchant.toLowerCase())
-            : normalizedMerchantText === normalizedTxMerchant;
-          const isSameMcc = tx.mcc === mcc;
-          return isSameDate && isSameAmount && merchantMatch && isSameMcc;
-        });
-        const dateCell = cells[0];
-        const existingEmoji = dateCell.querySelector('.hand-emoji');
-        if (existingEmoji) existingEmoji.remove();
-        if (isIncluded) {
-          const emoji = document.createElement('span');
-          emoji.className = 'hand-emoji';
-          emoji.textContent = '👉';
-          dateCell.insertBefore(emoji, dateCell.firstChild);
-        }
+      const isSameDate =
+        txCreatedAt.getUTCFullYear() === parsedTableDate.getUTCFullYear() &&
+        txCreatedAt.getUTCMonth() === parsedTableDate.getUTCMonth() &&
+        txCreatedAt.getUTCDate() === parsedTableDate.getUTCDate();
+      const isSameAmount = Math.abs(parseFloat(tx.billingAmount) - billingAmount) < 0.5;
+      const normalizedMerchantText = merchantText.replace(/\s+/g, ' ').trim().replace(/ - .*$/, ''); // Reverted normalization
+      const normalizedTxMerchant = tx.merchant?.name?.replace(/\s+/g, ' ').trim() || '';
+      const merchantMatch = normalizedMerchantText && normalizedTxMerchant
+        ? normalizedTxMerchant.toLowerCase().includes(normalizedMerchantText.toLowerCase()) ||
+          normalizedMerchantText.toLowerCase().includes(normalizedTxMerchant.toLowerCase())
+        : normalizedMerchantText === normalizedTxMerchant;
+      const isSameMcc = tx.mcc === mcc;
+      console.log(`Row ${rowIndex} matching check:`, {
+        isSameDate,
+        isSameAmount,
+        merchantMatch,
+        isSameMcc,
+        tableDate: parsedTableDate.toISOString(),
+        txDate: txCreatedAt.toISOString(),
+        tableAmount: billingAmount,
+        txAmount: parseFloat(tx.billingAmount),
+        tableMerchant: normalizedMerchantText,
+        txMerchant: normalizedTxMerchant,
+        tableMcc: mcc,
+        txMcc: tx.mcc
       });
+      return isSameDate && isSameAmount && merchantMatch && isSameMcc;
+    });
+    const dateCell = cells[0];
+    const existingEmoji = dateCell.querySelector('.hand-emoji');
+    if (existingEmoji) {
+      existingEmoji.remove();
+      console.log(`Row ${rowIndex}: Removed existing hand emoji`);
     }
+    if (isIncluded) {
+      const emoji = document.createElement('span');
+      emoji.className = 'hand-emoji';
+      emoji.textContent = '👉';
+      dateCell.insertBefore(emoji, dateCell.firstChild);
+      console.log(`Row ${rowIndex}: Added hand emoji for merchant "${merchantText}"`);
+    } else {
+      console.log(`Row ${rowIndex}: Skipped hand emoji for merchant "${merchantText}"`);
+    }
+  });
+}
+
     function generateColors(count) {
       const colors = [];
       const hueStep = 360 / count;
@@ -850,6 +1565,7 @@ async function scrapeTransactionsFromTable() {
       }
       return colors;
     }
+    
     async function updateChart(transactionsToUse = allTransactions) {
       if (!container) return;
       const chartContainer = container.querySelector('#spendingChart');
@@ -1140,24 +1856,24 @@ async function scrapeTransactionsFromTable() {
     });
     yearSelect.addEventListener('change', () => {
       clearTableHighlights();
-      populateMonthDropdown(yearSelect.value);
+      populateMonthDropdownChart(yearSelect.value);
       updateChart();
     });
-    const calculateButton = container.querySelector('#calculateCashback');
-    calculateButton.addEventListener('click', () => {
-      const weekPeriod = container.querySelector('#weekSelect').value;
-      const gnoAmount = parseFloat(container.querySelector('#gnoAmount').value) || 0;
-      const hasOgNft = container.querySelector('#ogNft').checked;
-      const { totalCashback, cashbackRate, filteredTransactions, currency } = calculateCashback(
-        allTransactions,
-        weekPeriod,
-        gnoAmount,
-        hasOgNft
-      );
-      const resultDiv = container.querySelector('#cashbackResult');
-      resultDiv.textContent = `Cashback: ${currency}${totalCashback.toFixed(2)} (${cashbackRate.toFixed(2)}% rate)`;
-      updateTableCashbackHighlights(filteredTransactions);
-    });
+const calculateButton = container.querySelector('#calculateCashback');
+calculateButton.addEventListener('click', () => {
+  const weekPeriod = container.querySelector('#weekSelect').value;
+  const gnoAmount = parseFloat(container.querySelector('#gnoAmount').value) || 0;
+  const hasOgNft = container.querySelector('#ogNft').checked;
+  const { totalCashback, cashbackRate, filteredTransactions, currency } = calculateCashback(
+    allTransactions, // Reverted to allTransactions
+    weekPeriod,
+    gnoAmount,
+    hasOgNft
+  );
+  const resultDiv = container.querySelector('#cashbackResult');
+  resultDiv.textContent = `Cashback: ${currency}${totalCashback.toFixed(2)} (${cashbackRate.toFixed(2)}% rate)`;
+  updateTableCashbackHighlights(filteredTransactions);
+});
     window.updateChartSpending = updateChart;
     window.updateYearlyHistogram = updateYearlyHistogram;
     await updateChart(transactions);
@@ -1188,37 +1904,6 @@ async function scrapeTransactionsFromTable() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
-      throw error;
-    }
-  }
-  async function getTransactions() {
-    try {
-      const response = await fetch("https://app.gnosispay.com/api/v1/transactions", {
-        method: "GET",
-        headers: {},
-        referrer: "https://app.gnosispay.com/dashboard",
-        referrerPolicy: "strict-origin-when-cross-origin",
-        mode: "cors",
-        credentials: "include"
-      });
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-      const data = await response.json();
-      const transactions = Array.isArray(data) ? data : data.transactions || [];
-      const currencyMap = { 'GBP': '£', 'USD': '$', 'EUR': '€' };
-      return transactions.map(tx => ({
-        createdAt: tx.createdAt || tx.clearedAt || "",
-        clearedAt: tx.clearedAt || tx.createdAt || "",
-        isPending: tx.isPending || false,
-        billingAmount: (parseFloat(tx.billingAmount) / 100).toString() || "0",
-        billingCurrency: { symbol: currencyMap[tx.billingCurrency?.symbol] || '£' },
-        mcc: tx.mcc || "0000",
-        merchant: { name: tx.merchant?.name?.replace(/\s+/g, ' ').trim() || "" },
-        transactionType: tx.kind === "Payment" ? "PURCHASE" : tx.kind || "PURCHASE",
-        status: tx.status || "Approved",
-        kind: tx.kind || "Payment"
-      }));
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
       throw error;
     }
   }
@@ -1269,103 +1954,120 @@ async function scrapeTransactionsFromTable() {
       csvButton.addEventListener('click', async () => {
         try {
           const transactions = await getTransactions();
-          if (!transactions.length) {
-            alert('No transactions available');
-            return;
-          }
-          const csvData = await convertToCSV(transactions);
-          await downloadCSV(csvData);
-        } catch (error) {
-          alert('Export failed: ' + error.message);
+        if (!transactions.length) {
+          alert('No transactions available');
+          return;
         }
-      });
-      headerContainer.appendChild(csvButton);
-      mccHeader.appendChild(headerContainer);
-      headerRow.appendChild(mccHeader);
-    }
-    const rows = table.querySelectorAll('tbody tr');
-    rows.forEach((row, index) => {
-      if (row.querySelector('th')) return;
-      const transaction = transactions[index];
-      if (!transaction) return;
-      const cells = row.querySelectorAll('td');
-      const hasMccCell = Array.from(cells).some(cell => cell.textContent.trim().match(/^\d{4}$/) || cell.classList.contains('mcc-cell'));
-      if (!hasMccCell) {
-        const mccCell = document.createElement('td');
-        mccCell.classList.add('mcc-cell');
-        const cellContainer = document.createElement('div');
-        cellContainer.style.display = 'flex';
-        cellContainer.style.alignItems = 'center';
-        cellContainer.style.justifyContent = 'center';
-        cellContainer.style.gap = '32px';
-        const valueSpan = document.createElement('span');
-        valueSpan.textContent = transaction.mcc || '0000';
-        cellContainer.appendChild(valueSpan);
-        if (transaction.mcc) {
-          const emojiSpan = document.createElement('span');
-          emojiSpan.textContent = NO_CASHBACK_MCCS.includes(transaction.mcc) ? '⛔' : '🤑';
-          emojiSpan.style.fontSize = '16px';
-          cellContainer.appendChild(emojiSpan);
-        }
-        mccCell.appendChild(cellContainer);
-        const merchantCell = cells[merchantIndex];
-        if (merchantCell) {
-          mccCell.className = merchantCell.className + ' mcc-cell';
-          mccCell.style.cssText = merchantCell.style.cssText;
-        }
-        row.appendChild(mccCell);
+        const csvData = await convertToCSV(transactions);
+        await downloadCSV(csvData);
+      } catch (error) {
+        alert('Export failed: ' + error.message);
       }
     });
+    headerContainer.appendChild(csvButton);
+    mccHeader.appendChild(headerContainer);
+    headerRow.appendChild(mccHeader);
   }
-  async function init() {
-    if (isInitialized) return;
-    isInitialized = true;
-    if (window.location.href.startsWith('https://app.gnosispay.com/')) {
-      let retries = 3;
-      while (retries > 0) {
-        try {
-          await modifyTable();
-          const transactions = await getTransactions();
-          await createSpendingChart(transactions);
-          await setupButtonListeners();
-          break;
-        } catch (error) {
-          retries--;
-          if (retries === 0) return;
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+  const rows = table.querySelectorAll('tbody tr');
+  rows.forEach((row, index) => {
+    if (row.querySelector('th')) return;
+    const transaction = transactions[index];
+    if (!transaction) return;
+    const cells = row.querySelectorAll('td');
+    const hasMccCell = Array.from(cells).some(cell => cell.classList.contains('mcc-cell'));
+    if (!hasMccCell) {
+      const mccCell = document.createElement('td');
+      mccCell.classList.add('mcc-cell');
+      const cellContainer = document.createElement('div');
+      cellContainer.style.display = 'flex';
+      cellContainer.style.alignItems = 'center';
+      cellContainer.style.justifyContent = 'center';
+      cellContainer.style.gap = '32px';
+      const valueSpan = document.createElement('span');
+      valueSpan.textContent = transaction.mcc || '0000';
+      cellContainer.appendChild(valueSpan);
+      if (transaction.mcc) {
+        const emojiSpan = document.createElement('span');
+        emojiSpan.textContent = NO_CASHBACK_MCCS.includes(transaction.mcc) ? '⛔' : '🤑';
+        emojiSpan.style.fontSize = '16px';
+        cellContainer.appendChild(emojiSpan);
+      }
+      mccCell.appendChild(cellContainer);
+      const merchantCell = cells[merchantIndex];
+      if (merchantCell) {
+        mccCell.className = merchantCell.className + ' mcc-cell';
+        mccCell.style.cssText = merchantCell.style.cssText;
+      }
+      row.appendChild(mccCell);
+    }
+  });
+}
+async function init() {
+  if (isInitialized) return;
+  isInitialized = true;
+  if (window.location.href.startsWith('https://app.gnosispay.com/')) {
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        await modifyTable();
+        const transactions = await getTransactions();
+        await createSpendingChart(transactions);
+        await setupButtonListeners();
+        const filteredTransactions = filterTransactions(transactions);
+        updateTableDisplay(filteredTransactions); // Initial filter application
+        break;
+      } catch (error) {
+        retries--;
+        if (retries === 0) return;
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
   }
+}
+
   if (document.readyState === 'complete' || document.readyState === 'interactive') init();
   else document.addEventListener('DOMContentLoaded', init);
   let lastTableContent = '';
   let tableModified = false;
-  const observer = new MutationObserver(async () => {
-    if (!isInitialized) return;
-    const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
-    if (table) {
-      const currentContent = table.innerHTML.substring(0, 1000);
-      if (currentContent === lastTableContent) return;
-      lastTableContent = currentContent;
-      try {
-        if (!tableModified) {
-          await modifyTable();
-          tableModified = true;
+const observer = new MutationObserver(async () => {
+  if (!isInitialized) return;
+  const table = document.querySelector('table, [class*="table"], [class*="transactions"], [role="grid"], [class*="data"], [class*="list"]');
+  if (table) {
+    const currentContent = table.innerHTML.substring(0, 1000);
+    if (currentContent === lastTableContent) return;
+    lastTableContent = currentContent;
+    try {
+      if (!tableModified) {
+        await modifyTable();
+        tableModified = true;
+      }
+      const transactions = await getTransactions();
+      allTransactions = transactions;
+      const filteredTransactions = filterTransactions(transactions);
+      updateTableDisplay(filteredTransactions);
+      if (chartContainerExists && transactions.length > 0) {
+        const updateChartFn = window.updateChartSpending;
+        if (updateChartFn) {
+          selectedHighlights.clear();
+          await updateChartFn(filteredTransactions);
+          await window.updateYearlyHistogram(filteredTransactions);
+          const weekSelect = container.querySelector('#weekSelect');
+          if (weekSelect) populateWeekDropdown(filteredTransactions);
+          console.log('Repopulating filter dropdowns and re-setting listeners due to table change');
+          populateMonthDropdown(transactions);
+          populateYearDropdown(transactions);
+          populateCountryDropdown(transactions);
+          populateCategoryDropdown(transactions);
+          setupFilterListeners();
+          setupVisibilityToggles();
         }
-        const transactions = await getTransactions();
-        if (chartContainerExists && transactions.length > 0) {
-          const updateChartFn = window.updateChartSpending;
-          if (updateChartFn) {
-            selectedHighlights.clear();
-            await updateChartFn(transactions);
-            await window.updateYearlyHistogram(transactions);
-            const weekSelect = container.querySelector('#weekSelect');
-            if (weekSelect) populateWeekDropdown(transactions);
-          }
-        } else if (transactions.length > 0) await createSpendingChart(transactions);
-      } catch (error) {}
+      } else if (transactions.length > 0) {
+        await createSpendingChart(transactions);
+      }
+    } catch (error) {
+      console.error('Error in observer:', error);
     }
-  });
+  }
+});
   observer.observe(document.body, { childList: true, subtree: true });
 })();
