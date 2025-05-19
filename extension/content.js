@@ -1387,7 +1387,7 @@ function updateTableCashbackHighlights(filteredTransactions) {
     const merchantText = cells[2]?.textContent.trim() || '';
     const amountText = cells[3]?.textContent.trim() || '';
     let mccText = cells[5]?.textContent.trim() || '';
-    if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED')) || merchantText.toUpperCase().includes('INSUFFICIENT')) {
+    if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED') || merchantText.toUpperCase().includes('INSUFFICIENT')) {
       return;
     }
     const tableDate = parseTransactionDate(dateText);
