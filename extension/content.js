@@ -120,6 +120,7 @@ async function scrapeTransactionsFromTable() {
     if (merchantText.includes('Pending')) status = 'Pending';
     else if (merchantText.includes('Declined')) status = 'Declined';
     else if (merchantText.includes('Refund')) status = 'Refund';
+    else if (merchantText.includes('Insufficient')) status = 'InsufficientFunds';
     transactions.push({
       createdAt,
       merchant: { name: merchantText },
@@ -1386,7 +1387,7 @@ function updateTableCashbackHighlights(filteredTransactions) {
     const merchantText = cells[2]?.textContent.trim() || '';
     const amountText = cells[3]?.textContent.trim() || '';
     let mccText = cells[5]?.textContent.trim() || '';
-    if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED')) {
+    if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED')) || merchantText.toUpperCase().includes('INSUFFICIENT')) {
       return;
     }
     const tableDate = parseTransactionDate(dateText);
