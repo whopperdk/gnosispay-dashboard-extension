@@ -641,8 +641,8 @@ function updateTableHighlights(transactions, chartType = 'pie', selectedCategory
   const rows = table.querySelectorAll('tbody tr');
   rows.forEach((row) => {
     const cells = row.querySelectorAll('td');
-    if (cells.length < 5) return;
-    const mccText = cells[4]?.textContent.trim() || '';
+    if (cells.length < 6) return;
+    const mccText = cells[5]?.textContent.trim() || '';
     let mcc = '0000';
     try {
       if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
