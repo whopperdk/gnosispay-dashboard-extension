@@ -534,57 +534,53 @@ let noCashback = false;
   `;
   document.head.appendChild(style);
 
-  async function getTransactions() {
-    try {
-      const response = await fetch("https://app.gnosispay.com/api/v1/transactions", {
-        method: "GET",
-        headers: {},
-        referrer: "https://app.gnosispay.com/dashboard",
-        referrerPolicy: "strict-origin-when-cross-origin",
-        mode: "cors",
-        credentials: "include"
-      });
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-      const data = await response.json();
-      const apiTransactions = Array.isArray(data) ? data : data.transactions || [];
-      const currencyMap = { 'GBP': '£', 'USD': '$', 'EUR': '€' };
-      const scrapedTransactions = await scrapeTransactionsFromTable();
-      return apiTransactions.map((tx, index) => {
-        const scrapedTx = scrapedTransactions[index] || {};
-        return {
-          createdAt: tx.createdAt || tx.clearedAt || scrapedTx.createdAt || "",
-          clearedAt: tx.clearedAt || tx.createdAt || scrapedTx.createdAt || "",
-          isPending: tx.isPending || scrapedTx.status === 'Pending' || false,
-          billingAmount: (parseFloat(tx.billingAmount) / 100).toString() || scrapedTx.billingAmount || "0",
-          billingCurrency: { symbol: currencyMap[tx.billingCurrency?.symbol] || scrapedTx.billingCurrency?.symbol || '£' },
-          mcc: tx.mcc || scrapedTx.mcc || "0000",
-          merchant: { name: scrapedTx.merchant?.name || tx.merchant?.name?.replace(/\s+/g, ' ').trim() || "" },
-          transactionType: tx.kind === "Payment" ? "PURCHASE" : tx.kind || scrapedTx.transactionType || "PURCHASE",
-          status: scrapedTx.status || tx.status || "Approved",
-          kind: tx.kind || "Payment",
-          country: tx.country || { name: scrapedTx.country?.name || 'Unknown' },
-          category: scrapedTx.category || getMccCategory(tx.mcc || '0000'),
-          rowIndex: scrapedTx.rowIndex || index
-        };
-      });
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-      throw error;
-    }
+async function getTransactions() {
+  try {
+    const response = await fetch("https://app.gnosispay.com/api/v1/transactions", {
+      method: "GET",
+      headers: {},
+      referrer: "https://app.gnosispay.com/dashboard",
+      referrerPolicy: "strict-origin-when-cross-origin",
+      mode: "cors",
+      credentials: "include"
+    });
+    if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+    const data = await response.json();
+    const apiTransactions = Array.isArray(data) ? data : data.transactions || [];
+    const currencyMap = { 'GBP': '£', 'USD': '$', 'EUR': '€' };
+    const scrapedTransactions = await scrapeTransactionsFromTable();
+    return apiTransactions.map((tx, index) => {
+      const scrapedTx = scrapedTransactions[index] || {};
+      return {
+        createdAt: tx.createdAt || tx.clearedAt || scrapedTx.createdAt || "",
+        clearedAt: tx.clearedAt || tx.createdAt || scrapedTx.createdAt || "",
+        isPending: tx.isPending || scrapedTx.status === 'Pending' || false,
+        transactionAmount: tx.transactionAmount ? (parseFloat(tx.transactionAmount) / 100).toFixed(2) : "", // New: API transaction amount
+        transactionCurrency: tx.transactionCurrency ? { symbol: currencyMap[tx.transactionCurrency.symbol] || tx.transactionCurrency.symbol || "" } : { symbol: "" }, // New: API transaction currency
+        billingAmount: (parseFloat(tx.billingAmount) / 100).toString() || scrapedTx.billingAmount || "0",
+        billingCurrency: { symbol: currencyMap[tx.billingCurrency?.symbol] || scrapedTx.billingCurrency?.symbol || '£' },
+        mcc: tx.mcc || scrapedTx.mcc || "0000",
+        merchant: {
+          name: scrapedTx.merchant?.name || tx.merchant?.name?.replace(/\s+/g, ' ').trim() || "",
+          city: tx.merchant?.city || "", // New: Merchant city from API
+          country: { name: tx.merchant?.country?.name || "" } // New: Merchant country from API
+        },
+        transactionType: tx.kind === "Payment" ? "PURCHASE" : tx.kind || scrapedTx.transactionType || "PURCHASE",
+        status: scrapedTx.status || tx.status || "Approved",
+        kind: tx.kind || "Payment",
+        country: { name: tx.country?.name || scrapedTx.country?.name || 'Unknown' },
+        category: scrapedTx.category || getMccCategory(tx.mcc || '0000'),
+        rowIndex: scrapedTx.rowIndex || index,
+        transactions: tx.transactions || [] // New: Transactions array for transactionHash
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    throw error;
   }
+}
 
 function filterTransactions(transactions) {
-  console.log('Filtering transactions:', transactions.map(tx => ({
-    rowIndex: tx.rowIndex,
-    merchant: tx.merchant?.name,
-    country: tx.country?.name,
-    category: getMccCategory(tx.mcc),
-    month: tx.createdAt ? new Date(tx.createdAt).getMonth() + 1 : null,
-    year: tx.createdAt ? new Date(tx.createdAt).getFullYear() : null,
-    mcc: tx.mcc,
-    transactionType: tx.transactionType,
-    isCashbackEligible: tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType)
-  })));
   const filtered = transactions.filter(tx => {
     const merchantMatch = !merchantSearch || (tx.merchant?.name || '').toLowerCase().includes(merchantSearch.toLowerCase());
     const countryMatch = selectedCountry === 'all' || tx.country?.name === selectedCountry;
@@ -614,22 +610,8 @@ function filterTransactions(transactions) {
     } else if (noCashback && !cashbackEligible) {
       cashbackMatch = !isCashbackEligible;
     }
-    console.log(`Transaction ${tx.rowIndex} filter check:`, {
-      merchantMatch,
-      countryMatch,
-      categoryMatch,
-      monthMatch,
-      yearMatch,
-      cashbackMatch,
-      isCashbackEligible
-    });
     return merchantMatch && countryMatch && categoryMatch && monthMatch && yearMatch && cashbackMatch;
   });
-  console.log('Filtered transactions:', filtered.map(tx => ({
-    rowIndex: tx.rowIndex,
-    merchant: tx.merchant?.name,
-    isCashbackEligible: tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType)
-  })));
   return filtered;
 }
 function updateTableHighlights(transactions, chartType = 'pie', selectedCategory = null, selectedColor = null, selectedMonth = null, selectedYear = null) {
@@ -1225,7 +1207,6 @@ function setupFilterListeners() {
   if (merchantSearchInput) {
     merchantSearchInput.addEventListener('input', () => {
       merchantSearch = merchantSearchInput.value.trim();
-      console.log('Merchant search updated:', merchantSearch);
       applyFilters();
     });
   } else {
@@ -1234,7 +1215,6 @@ function setupFilterListeners() {
   if (countrySelect) {
     countrySelect.addEventListener('change', () => {
       selectedCountry = countrySelect.value;
-      console.log('Country filter updated:', selectedCountry);
       applyFilters();
     });
   } else {
@@ -1243,7 +1223,6 @@ function setupFilterListeners() {
   if (categorySelect) {
     categorySelect.addEventListener('change', () => {
       selectedCategory = categorySelect.value;
-      console.log('Category filter updated:', selectedCategory);
       applyFilters();
     });
   } else {
@@ -1252,7 +1231,6 @@ function setupFilterListeners() {
   if (monthSelect) {
     monthSelect.addEventListener('change', () => {
       selectedMonth = monthSelect.value;
-      console.log('Month filter updated:', selectedMonth);
       applyFilters();
     });
   } else {
@@ -1261,7 +1239,6 @@ function setupFilterListeners() {
   if (yearSelect) {
     yearSelect.addEventListener('change', () => {
       selectedYear = yearSelect.value;
-      console.log('Year filter updated:', selectedYear);
       applyFilters();
     });
   } else {
@@ -1274,7 +1251,6 @@ function setupFilterListeners() {
       cashbackEligibleButton.setAttribute('data-active', cashbackEligible);
       const noCashbackBtn = container.querySelector('#noCashbackFilter');
       if (noCashbackBtn) noCashbackBtn.setAttribute('data-active', noCashback);
-      console.log('Cashback eligible toggled:', cashbackEligible, 'No cashback:', noCashback);
       applyFilters();
     });
   } else {
@@ -1287,7 +1263,6 @@ function setupFilterListeners() {
       noCashbackButton.setAttribute('data-active', noCashback);
       const cashbackEligibleBtn = container.querySelector('#cashbackEligibleFilter');
       if (cashbackEligibleBtn) cashbackEligibleBtn.setAttribute('data-active', cashbackEligible);
-      console.log('No cashback toggled:', noCashback, 'Cashback eligible:', cashbackEligible);
       applyFilters();
     });
   } else {
@@ -1439,15 +1414,12 @@ function updateTableCashbackHighlights(filteredTransactions) {
     const existingEmoji = dateCell.querySelector('.hand-emoji');
     if (existingEmoji) {
       existingEmoji.remove();
-      console.log(`Row ${rowIndex}: Removed existing hand emoji`);
     }
     if (isIncluded) {
       const emoji = document.createElement('span');
       emoji.className = 'hand-emoji';
       emoji.textContent = '👉';
       dateCell.insertBefore(emoji, dateCell.firstChild);
-    } else {
-      console.log(`Row ${rowIndex}: Skipped hand emoji for merchant "${merchantText}"`);
     }
   });
 }
@@ -1731,34 +1703,63 @@ calculateButton.addEventListener('click', () => {
     await updateChart(transactions);
     await updateYearlyHistogram(transactions);
   }
-  async function convertToCSV(transactions) {
-    if (!Array.isArray(transactions)) throw new Error('Invalid transactions data');
-    const headers = ["createdAt", "billingAmount", "billingCurrency", "mcc", "merchantName", "transactionType"];
-    const rows = transactions.map(tx => [
-      tx.clearedAt || tx.createdAt || "",
-      parseFloat(tx.billingAmount || 0).toFixed(2),
-      tx.billingCurrency?.symbol || "",
-      tx.mcc || "",
-      (tx.merchant?.name || "").trim(),
-      tx.transactionType || ""
-    ].map(value => `"${value}"`).join(","));
-    return [headers.join(","), ...rows].join("\n");
+async function convertToCSV(transactions) {
+  if (!Array.isArray(transactions)) throw new Error('Invalid transactions data');
+  const headers = [
+    "createdAt",
+    "clearedAt",
+    "isPending",
+    "transactionAmount",
+    "transactionCurrency",
+    "billingAmount",
+    "billingCurrency",
+    "mcc",
+    "merchantName",
+    "merchantCity",
+    "merchantCountry",
+    "country",
+    "kind",
+    "status",
+    "transactionHash"
+  ];
+  const rows = transactions.map(tx => [
+    tx.createdAt || "",
+    tx.clearedAt || "",
+    tx.isPending || false,
+    tx.transactionAmount ? parseFloat(tx.transactionAmount).toFixed(2) : "", // Handle transactionAmount if available
+    tx.transactionCurrency?.symbol || "", 
+    parseFloat(tx.billingAmount || 0).toFixed(2),
+    tx.billingCurrency?.symbol || "",
+    tx.mcc || "",
+    (tx.merchant?.name || "").trim(),
+    (tx.merchant?.city || "").trim(), 
+    tx.merchant?.country?.name || "", 
+    tx.country?.name || "",
+    tx.kind || "",
+    tx.status || "",
+    (tx.transactions?.length > 0 && tx.transactions[0].hash) ? tx.transactions[0].hash : "" 
+  ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(","));
+  return [headers.join(","), ...rows].join("\n");
+}
+async function downloadCSV(data, filename = "transactions.csv") {
+  try {
+    // Add UTF-8 BOM to ensure proper encoding
+    const bom = "\uFEFF";
+    const csvData = bom + data;
+    const blob = new Blob([csvData], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('CSV download failed:', error);
+    throw error;
   }
-  async function downloadCSV(data, filename = "transactions.csv") {
-    try {
-      const blob = new Blob([data], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      throw error;
-    }
-  }
+}
   async function modifyTable() {
     let table;
     try {
