@@ -43,27 +43,14 @@ function getMccCategory(mccCode) {
 
 function parseTransactionDate(dateText) {
   try {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const simpleDateMatch = dateText.match(/(\w+\s+\d{1,2})/);
-    if (simpleDateMatch) {
-      const datePart = simpleDateMatch[1];
-      const parsedDate = new Date(`${datePart} ${currentYear} 00:00 UTC`);
-      if (!isNaN(parsedDate.getTime())) {
-        parsedDate.setUTCHours(0, 0, 0, 0);
-        return parsedDate.toISOString();
-      }
+    if (!dateText.trim()) {
+      console.warn(`Empty date text`);
+      return '';
     }
-    const dateMatch = dateText.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-    if (dateMatch) {
-      const parsedDate = new Date(Date.UTC(parseInt(dateMatch[3]), parseInt(dateMatch[2]) - 1, parseInt(dateMatch[1])));
-      if (!isNaN(parsedDate.getTime())) return parsedDate.toISOString();
-    }
-    console.warn(`Failed to parse date: "${dateText}"`);
-    return now.toISOString();
+    return dateText.trim(); // Store raw date text for fallback
   } catch (error) {
-    console.warn(`Error parsing date "${dateText}":`, error);
-    return new Date().toISOString();
+    console.warn(`Error parsing date "${dateText}"`, error);
+    return '';
   }
 }
 
@@ -96,38 +83,44 @@ async function scrapeTransactionsFromTable() {
   rows.forEach((row, index) => {
     if (row.querySelector('th')) return;
     const cells = row.querySelectorAll('td');
-    if (cells.length < 4) return; 
+    if (cells.length < 4) return;
     const dateText = cells[0]?.textContent.trim() || '';
     const merchantText = cells[1]?.textContent.trim() || '';
     const amountText = cells[3]?.textContent.trim() || '';
     const mccText = cells[5]?.textContent.trim() || '';
-    const typeText = cells[2]?.textContent.trim().toUpperCase() || 'PURCHASE'; 
-    let createdAt = parseTransactionDate(dateText);
+    const typeText = cells[2]?.textContent.trim().toUpperCase() || 'PURCHASE';
+
     let billingAmount = 0;
     try {
       const amountMatch = amountText.match(/[\d,.]+/);
       billingAmount = amountMatch ? parseFloat(amountMatch[0].replace(/,/g, '')) : 0;
     } catch (error) {}
+
     let mcc = '0000';
     try {
       if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
     } catch (error) {}
+
     let currencySymbol = '€';
     if (amountText.includes('$')) currencySymbol = '$';
     else if (amountText.includes('£')) currencySymbol = '£';
     else if (amountText.includes('€')) currencySymbol = '€';
-    let status = 'Approved';
+
+    let status = null;
     if (merchantText.includes('Pending')) status = 'Pending';
     else if (merchantText.includes('Declined')) status = 'Declined';
     else if (merchantText.includes('Refund')) status = 'Refund';
     else if (merchantText.includes('Insufficient')) status = 'InsufficientFunds';
+
     transactions.push({
-      createdAt,
+      createdAt: dateText, // Store raw date text
       merchant: { name: merchantText },
       billingAmount,
       billingCurrency: { symbol: currencySymbol },
       mcc,
-      transactionType: typeText
+      transactionType: typeText,
+      status,
+      rowIndex: index
     });
   });
   return transactions;
@@ -549,31 +542,47 @@ async function getTransactions() {
     const apiTransactions = Array.isArray(data) ? data : data.transactions || [];
     const currencyMap = { 'GBP': '£', 'USD': '$', 'EUR': '€' };
     const scrapedTransactions = await scrapeTransactionsFromTable();
-    return apiTransactions.map((tx, index) => {
-      const scrapedTx = scrapedTransactions[index] || {};
+
+    // Match by index
+    const transactions = scrapedTransactions.map((scrapedTx, index) => {
+      const apiTx = apiTransactions[index] || {};
+      const createdAt = apiTx.createdAt || apiTx.clearedAt || scrapedTx.createdAt || '';
+      const clearedAt = apiTx.clearedAt || apiTx.createdAt || scrapedTx.createdAt || '';
+
+      if (createdAt) {
+        const date = new Date(createdAt);
+        if (isNaN(date.getTime())) {
+          console.warn(`Transaction ${index}: Invalid createdAt "${createdAt}"`);
+        } else if (date.getUTCFullYear() === 2024) {
+          console.log(`Transaction ${index}: 2024 transaction, createdAt="${createdAt}"`);
+        }
+      }
+
       return {
-        createdAt: tx.createdAt || tx.clearedAt || scrapedTx.createdAt || "",
-        clearedAt: tx.clearedAt || tx.createdAt || scrapedTx.createdAt || "",
-        isPending: tx.isPending || scrapedTx.status === 'Pending' || false,
-        transactionAmount: tx.transactionAmount ? (parseFloat(tx.transactionAmount) / 100).toFixed(2) : "", // New: API transaction amount
-        transactionCurrency: tx.transactionCurrency ? { symbol: currencyMap[tx.transactionCurrency.symbol] || tx.transactionCurrency.symbol || "" } : { symbol: "" }, // New: API transaction currency
-        billingAmount: (parseFloat(tx.billingAmount) / 100).toString() || scrapedTx.billingAmount || "0",
-        billingCurrency: { symbol: currencyMap[tx.billingCurrency?.symbol] || scrapedTx.billingCurrency?.symbol || '£' },
-        mcc: tx.mcc || scrapedTx.mcc || "0000",
+        createdAt,
+        clearedAt,
+        isPending: apiTx.isPending || scrapedTx.status === 'Pending' || false,
+        transactionAmount: apiTx.transactionAmount ? (parseFloat(apiTx.transactionAmount) / 100).toFixed(2) : '',
+        transactionCurrency: apiTx.transactionCurrency ? { symbol: currencyMap[apiTx.transactionCurrency.symbol] || apiTx.transactionCurrency.symbol || '' } : { symbol: '' },
+        billingAmount: (parseFloat(apiTx.billingAmount) / 100).toString() || scrapedTx.billingAmount || '0',
+        billingCurrency: { symbol: currencyMap[apiTx.billingCurrency?.symbol] || scrapedTx.billingCurrency?.symbol || '£' },
+        mcc: apiTx.mcc || scrapedTx.mcc || '0000',
         merchant: {
-          name: scrapedTx.merchant?.name || tx.merchant?.name?.replace(/\s+/g, ' ').trim() || "",
-          city: tx.merchant?.city || "", // New: Merchant city from API
-          country: { name: tx.merchant?.country?.name || "" } // New: Merchant country from API
+          name: scrapedTx.merchant?.name || apiTx.merchant?.name?.replace(/\s+/g, ' ').trim() || '',
+          city: apiTx.merchant?.city || '',
+          country: { name: apiTx.merchant?.country?.name || '' }
         },
-        transactionType: tx.kind === "Payment" ? "PURCHASE" : tx.kind || scrapedTx.transactionType || "PURCHASE",
-        status: scrapedTx.status || tx.status || "Approved",
-        kind: tx.kind || "Payment",
-        country: { name: tx.country?.name || scrapedTx.country?.name || 'Unknown' },
-        category: scrapedTx.category || getMccCategory(tx.mcc || '0000'),
-        rowIndex: scrapedTx.rowIndex || index,
-        transactions: tx.transactions || [] // New: Transactions array for transactionHash
+        transactionType: apiTx.kind === "Payment" ? "PURCHASE" : apiTx.kind || scrapedTx.transactionType || "PURCHASE",
+        status: apiTx.status || scrapedTx.status || "Approved", // Prioritize API status, then scraped status, then default
+        kind: apiTx.kind || "Payment",
+        country: { name: apiTx.country?.name || scrapedTx.country?.name || 'Unknown' },
+        category: scrapedTx.category || getMccCategory(apiTx.mcc || '0000'),
+        rowIndex: index,
+        transactions: apiTx.transactions || []
       };
     });
+
+    return transactions;
   } catch (error) {
     console.error('Error fetching transactions:', error);
     throw error;
@@ -603,7 +612,7 @@ function filterTransactions(transactions) {
         console.warn(`Invalid createdAt for transaction ${tx.rowIndex}: ${tx.createdAt}`);
       }
     }
-    const isCashbackEligible = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType);
+    const isCashbackEligible = tx.mcc && !NO_CASHBACK_MCCS.includes(tx.mcc) && !['ATM_WITHDRAWAL', 'MONEY_TRANSFER', 'REFUNDED'].includes(tx.transactionType) && tx.status === 'Approved' && tx.kind !== 'Reversal';
     let cashbackMatch = true;
     if (cashbackEligible && !noCashback) {
       cashbackMatch = isCashbackEligible;
@@ -620,39 +629,54 @@ function updateTableHighlights(transactions, chartType = 'pie', selectedCategory
     console.warn('Table not found for highlights');
     return;
   }
+
   const rows = table.querySelectorAll('tbody tr');
-  rows.forEach((row) => {
+  rows.forEach((row, rowIndex) => {
     const cells = row.querySelectorAll('td');
     if (cells.length < 6) return;
+
     const mccText = cells[5]?.textContent.trim() || '';
     let mcc = '0000';
     try {
       if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
     } catch (error) {
-      console.warn(`Failed to parse MCC "${mccText}"`);
+      console.warn(`Row ${rowIndex}: Failed to parse MCC "${mccText}"`);
     }
+
     const rowCategory = getMccCategory(mcc);
-    const dateText = cells[0]?.textContent.trim() || '';
-    const txDate = parseTransactionDate(dateText);
-    const rowMonth = new Date(txDate).getMonth() + 1;
-    const rowYear = new Date(txDate).getFullYear();
+
+    // Find transaction by rowIndex
+    const matchingTransaction = transactions.find(tx => tx.rowIndex === rowIndex);
+    if (!matchingTransaction || !matchingTransaction.createdAt) {
+      console.warn(`Row ${rowIndex}: No matching transaction or invalid createdAt`);
+      row.classList.remove('highlight-row');
+      row.querySelectorAll('td').forEach(cell => {
+        cell.style.color = '';
+        cell.style.fontWeight = '';
+      });
+      return;
+    }
+
+    const txDate = new Date(matchingTransaction.createdAt);
+    if (isNaN(txDate.getTime())) {
+      console.warn(`Row ${rowIndex}: Invalid transaction date "${matchingTransaction.createdAt}"`);
+      return;
+    }
+
+    const rowYear = txDate.getUTCFullYear();
+    const rowMonth = txDate.getUTCMonth() + 1;
+
     const highlightKeyMonth = `${rowYear}-${rowMonth}-${rowCategory}-${chartType}`;
     const highlightKeyAll = `all-${rowCategory}-${chartType}`;
-    const shouldHighlight = selectedCategory && selectedHighlights.has(highlightKeyMonth) || selectedHighlights.has(highlightKeyAll);
-    const isMatchingTransaction = transactions.some(tx => {
-      if (!tx.createdAt) return false;
-      const txDateObj = new Date(tx.createdAt);
-      if (isNaN(txDateObj.getTime())) return false;
-      const isSameDate =
-        txDateObj.getFullYear() === rowYear &&
-        txDateObj.getMonth() + 1 === rowMonth &&
-        txDateObj.getDate() === new Date(txDate).getDate();
-      const isSameCategory = getMccCategory(tx.mcc) === rowCategory;
-      return isSameDate && isSameCategory &&
-             (!selectedMonth || selectedMonth === rowMonth || selectedMonth === 'all') &&
-             (!selectedYear || selectedYear === rowYear || selectedYear === 'all');
-    });
-    if (shouldHighlight && rowCategory === selectedCategory && isMatchingTransaction) {
+
+    const shouldHighlight = selectedCategory && (selectedHighlights.has(highlightKeyMonth) || selectedHighlights.has(highlightKeyAll));
+
+    const isMatchingFilter =
+      getMccCategory(matchingTransaction.mcc) === rowCategory &&
+      (!selectedMonth || selectedMonth === 'all' || parseInt(selectedMonth) === rowMonth) &&
+      (!selectedYear || selectedYear === 'all' || parseInt(selectedYear) === rowYear);
+
+    if (shouldHighlight && rowCategory === selectedCategory && isMatchingFilter) {
       row.classList.add('highlight-row');
       row.querySelectorAll('td').forEach(cell => {
         cell.style.color = selectedColor || '';
@@ -814,8 +838,11 @@ function populateYearDropdown(transactions) {
   }
 
 async function createSpendingChart(transactions) {
-  allTransactions = transactions;
-  if (!Array.isArray(transactions) || !transactions.length) {
+  const fineTransactions = transactions.filter(
+    tx => tx.status === 'Approved' && tx.kind !== 'Reversal'
+  );
+  allTransactions = fineTransactions;
+  if (!Array.isArray(fineTransactions) || !fineTransactions.length) {
     container = document.createElement('div');
     container.className = 'financial-container';
     container.innerHTML = `<div class="chart-container"><div class="total-spent">Error: No valid transactions found</div></div>`;
@@ -841,6 +868,7 @@ async function createSpendingChart(transactions) {
       checkContainer();
     });
   };
+  
   const { transactionHeader, table } = await waitForContainer();
   container = document.createElement('div');
   container.className = 'financial-container';
@@ -1035,13 +1063,13 @@ container.innerHTML = `
       weekSelect.appendChild(option);
     }
   }
-  populateMonthDropdown(transactions);
-  populateYearDropdown(transactions);
-  populateCountryDropdown(transactions);
-  populateCategoryDropdown(transactions);
+  populateMonthDropdown(fineTransactions);
+  populateYearDropdown(fineTransactions);
+  populateCountryDropdown(fineTransactions);
+  populateCategoryDropdown(fineTransactions);
   
   populateMonthDropdownChart(defaultYear);
-  populateWeekDropdown(transactions);
+  populateWeekDropdown(fineTransactions);
   const waitForControls = () => {
     return new Promise((resolve, reject) => {
       let attempts = 0;
@@ -1311,7 +1339,7 @@ function calculateCashback(transactions, weekPeriod, gnoAmount, hasOgNft) {
       console.warn(`Transaction ${tx.rowIndex} skipped: No valid date field`);
       return false;
     }
-    if (tx.isPending || tx.status === 'Reversal' || tx.status === 'Other' || tx.kind === 'Reversal') { 
+    if (tx.isPending || tx.status !== 'Approved' || tx.kind === 'Reversal') {
       return false;
     }
     const txDate = new Date(dateField);
@@ -1351,6 +1379,7 @@ function updateTableCashbackHighlights(filteredTransactions) {
     console.warn('Table not found for cashback highlights');
     return;
   }
+
   const rows = table.querySelectorAll('tbody tr');
   rows.forEach((row, rowIndex) => {
     const cells = row.querySelectorAll('td');
@@ -1358,63 +1387,21 @@ function updateTableCashbackHighlights(filteredTransactions) {
       console.warn(`Row ${rowIndex}: Insufficient cells (${cells.length})`);
       return;
     }
-    const dateText = cells[0]?.textContent.trim() || '';
+
     const merchantText = cells[2]?.textContent.trim() || '';
-    const amountText = cells[3]?.textContent.trim() || '';
-    let mccText = cells[5]?.textContent.trim() || '';
     if (merchantText.toUpperCase().includes('PENDING') || merchantText.toUpperCase().includes('DECLINED') || merchantText.toUpperCase().includes('INSUFFICIENT')) {
       return;
     }
-    const tableDate = parseTransactionDate(dateText);
-    if (!tableDate) {
-      console.warn(`Row ${rowIndex}: Invalid date "${dateText}"`);
-      return;
-    }
-    const parsedTableDate = new Date(tableDate);
-    if (isNaN(parsedTableDate.getTime())) {
-      console.warn(`Row ${rowIndex}: Parsed date invalid "${tableDate}"`);
-      return;
-    }
-    let billingAmount = 0;
-    try {
-      const amountMatch = amountText.match(/[\d,.]+/);
-      billingAmount = amountMatch ? parseFloat(amountMatch[0].replace(/,/g, '')) : 0;
-    } catch (error) {
-      console.warn(`Row ${rowIndex}: Failed to parse amount "${amountText}"`);
-      return;
-    }
-    let mcc = '0000';
-    try {
-      if (mccText && /\d{4}/.test(mccText)) mcc = mccText.match(/(\d{4})/)[1];
-    } catch (error) {
-      console.warn(`Row ${rowIndex}: Failed to parse MCC "${mccText}"`);
-      return;
-    }
-    const isIncluded = filteredTransactions.some(tx => {
-      const txCreatedAt = new Date(tx.createdAt); 
-      if (isNaN(txCreatedAt.getTime())) {
-        console.warn(`Transaction ${tx.rowIndex}: Invalid transaction date "${tx.createdAt}"`);
-        return false;
-      }
-      const isSameDate =
-        txCreatedAt.getUTCFullYear() === parsedTableDate.getUTCFullYear() &&
-        txCreatedAt.getUTCMonth() === parsedTableDate.getUTCMonth() &&
-        txCreatedAt.getUTCDate() === parsedTableDate.getUTCDate();
-      const isSameAmount = Math.abs(parseFloat(tx.billingAmount) - billingAmount) < 0.5;
-      const normalizedMerchantText = merchantText.replace(/\s+/g, ' ').trim().replace(/ - .*$/, ''); 
-      const normalizedTxMerchant = tx.merchant?.name?.replace(/\s+/g, ' ').trim() || '';
-      const merchantMatch = normalizedMerchantText && normalizedTxMerchant
-        ? normalizedTxMerchant.toLowerCase().includes(normalizedMerchantText.toLowerCase()) ||
-          normalizedMerchantText.toLowerCase().includes(normalizedTxMerchant.toLowerCase())
-        : normalizedMerchantText === normalizedTxMerchant;
-      const isSameMcc = tx.mcc === mcc;
-      return isSameDate && isSameAmount && merchantMatch && isSameMcc;
-    });
+
+    // Find transaction by rowIndex
+    const isIncluded = filteredTransactions.some(tx => tx.rowIndex === rowIndex);
+
     const dateCell = cells[0];
     const existingEmoji = dateCell.querySelector('.hand-emoji');
     if (existingEmoji) {
       existingEmoji.remove();
     }
+
     if (isIncluded) {
       const emoji = document.createElement('span');
       emoji.className = 'hand-emoji';
@@ -1436,6 +1423,9 @@ function updateTableCashbackHighlights(filteredTransactions) {
     
     async function updateChart(transactionsToUse = allTransactions) {
       if (!container) return;
+      transactionsToUse = transactionsToUse.filter(
+        tx => tx.status === 'Approved' && tx.kind !== 'Reversal'
+      );
       const chartContainer = container.querySelector('#spendingChart');
       if (!chartContainer) {
         container.querySelector('#totalSpent').textContent = 'Error: Pie chart container not found';
@@ -1551,6 +1541,9 @@ function updateTableCashbackHighlights(filteredTransactions) {
     }
     async function updateYearlyHistogram(transactionsToUse = allTransactions) {
       if (!container) return;
+      transactionsToUse = transactionsToUse.filter(
+        tx => tx.status === 'Approved' && tx.kind !== 'Reversal'
+      );
       const histogramContainer = container.querySelector('#yearlyHistogram');
       if (!histogramContainer) {
         container.querySelector('#yearlyTotalSpent').textContent = 'Error: Histogram container not found';
