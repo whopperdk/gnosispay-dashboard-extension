@@ -328,6 +328,8 @@ let noCashback = false;
     .cashback-result {
       margin-top: 10px;
       font-weight: bold;
+      color: #333;
+      text-align: center;
     }
     .hand-emoji {
       margin-left: 5px;
@@ -937,15 +939,17 @@ container.innerHTML = `
         <div class="chart-legend" id="histogramLegend"></div>
       </div>
       <div class="cashback-calculator" id="cashbackCalculatorWrapper" style="display: none;">
-        <div class="chart-title">Cashback Calculator</div>
-        <div class="calculator-controls">
-          <label>Week: <select id="weekSelect"></select></label>
-          <label>GNO Amount: <input type="number" id="gnoAmount" step="0.1" min="0" placeholder="e.g., 0.1"></label>
-          <label><input type="checkbox" id="ogNft"> Owns OG NFT (+1%)</label>
-          <button id="calculateCashback">Calculate</button>
-        </div>
-        <div class="cashback-result" id="cashbackResult">Cashback: £0.00 (0% rate)</div>
+      <div class="chart-title">Cashback Calculator</div>
+      <div class="calculator-controls">
+        <label>Week: <select id="weekSelect"></select></label>
+        <label>GNO Amount: <input type="number" id="gnoAmount" step="0.1" min="0" placeholder="e.g., 0.1"></label>
+        <label><input type="checkbox" id="ogNft"> Owns OG NFT (+1%)</label>
+        <button id="calculateCashback">Calculate</button>
       </div>
+      <div class="cashback-result" id="cashbackResult">Cashback: £0.00 (0% rate)</div>
+      <div class="cashback-result" id="eligibleSpending">Eligible Spending: £0.00</div>
+      <div class="cashback-result" id="remainingEligible">Remaining Eligible Spending: £0.00 (of 5,000 weekly cap)</div>
+    </div>
       <div class="about-me-modal" id="aboutMeModal">
         <div class="about-me-modal-content">
           <button class="close-modal-button" id="closeAboutMeModal">×</button>
@@ -1353,12 +1357,16 @@ function calculateCashback(transactions, weekPeriod, gnoAmount, hasOgNft) {
     return isInDateRange && isEligibleMcc && isEligibleType;
   });
   const cashbackRate = calculateCashbackRate(gnoAmount, hasOgNft);
-  const totalCashback = filteredTransactions.reduce((sum, tx) => {
+  const weeklyCap = 5000;
+  const eligibleSpending = filteredTransactions.reduce((sum, tx) => {
     const amount = parseFloat(tx.billingAmount) || 0;
-    return sum + amount * cashbackRate;
+    return sum + amount;
   }, 0);
+  const cappedSpending = Math.min(eligibleSpending, weeklyCap);
+  const totalCashback = cappedSpending * cashbackRate;
+  const remainingEligible = Math.max(0, weeklyCap - eligibleSpending);
   const currencySymbol = filteredTransactions[0]?.billingCurrency?.symbol || '£';
-  return { totalCashback, cashbackRate: cashbackRate * 100, filteredTransactions, currency: currencySymbol };
+  return { totalCashback, cashbackRate: cashbackRate * 100, filteredTransactions, currency: currencySymbol, eligibleSpending, remainingEligible };
 }
 
 function clearCashbackHighlights() {
@@ -1681,14 +1689,18 @@ calculateButton.addEventListener('click', () => {
   const weekPeriod = container.querySelector('#weekSelect').value;
   const gnoAmount = parseFloat(container.querySelector('#gnoAmount').value) || 0;
   const hasOgNft = container.querySelector('#ogNft').checked;
-  const { totalCashback, cashbackRate, filteredTransactions, currency } = calculateCashback(
-    allTransactions, 
+  const { totalCashback, cashbackRate, filteredTransactions, currency, eligibleSpending, remainingEligible } = calculateCashback(
+    allTransactions,
     weekPeriod,
     gnoAmount,
     hasOgNft
   );
   const resultDiv = container.querySelector('#cashbackResult');
+  const eligibleSpendingDiv = container.querySelector('#eligibleSpending');
+  const remainingEligibleDiv = container.querySelector('#remainingEligible');
   resultDiv.textContent = `Cashback: ${currency}${totalCashback.toFixed(2)} (${cashbackRate.toFixed(2)}% rate)`;
+  eligibleSpendingDiv.textContent = `Eligible Spending of the week: ${currency}${eligibleSpending.toFixed(2)}`;
+  remainingEligibleDiv.textContent = `Remaining Eligible Spending: ${currency}${remainingEligible.toFixed(2)} (of 5,000 weekly cap)`;
   updateTableCashbackHighlights(filteredTransactions);
 });
     window.updateChartSpending = updateChart;
