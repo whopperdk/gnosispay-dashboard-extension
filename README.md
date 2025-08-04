@@ -22,7 +22,10 @@ I have no access to your data as this runs in your browser however, a few words 
 - **Cashback Calculator**: Estimate potential cashback earnings
 - **MCC Insights**: See merchant category codes and cashback eligibility
 - **Transactions Filter Tool**: Filter your transactions with a search bar and time / cashback / country / category filters
-- **Data Export**: Export transaction history to CSV
+- **Custom Tags**: Assign and manage custom tags for transactions, with CSV import/export support
+- **Data Export**: Export transaction history and custom tags to CSV
+
+
 
 ## Installation
 
@@ -58,13 +61,13 @@ I have no access to your data as this runs in your browser however, a few words 
 - Filter transactions with dedicated tool
 
 ### Spending Analysis
-- Monthly breakdown by category
+- Monthly breakdown by category or custom tags
 - Interactive category highlighting (if you click on an item in legend, you highlight corresponding transactions)
 - Total spending summary
 
 ### Yearly Overview
 - Annual spending trends
-- Category comparison across years
+- Category or custom tags comparison across years
 - Interactive category highlighting (if you click on an item in legend, you highlight corresponding transactions)
 
 ### Cashback Calculator
@@ -72,6 +75,12 @@ I have no access to your data as this runs in your browser however, a few words 
 - Enter your GNO token amount
 - Toggle OG NFT ownership
 - See estimated cashback amount and rate
+
+### Custom Tags
+- Manual Tagging: Assign up to three custom tags (Tag1, Tag2, Tag3) to selected transactions via checkboxes in the "Select" column. Enter tags in the Custom Tags module and apply them to update the transaction table.
+- CSV Import: Import tags from a CSV file.
+- Tag Clearing: Remove tags from selected transactions or all transactions using the "Clear Tags" button.
+- Persistence: Tags are stored in the browser’s localStorage and persist across sessions. Export tagged transactions to CSV to back up your data.
 
 ### Visa Exchange Rate
 - Link to page with Visa Exchange Rate (edit bank fee to 0% to have correct rate for Gnosis Pay)
