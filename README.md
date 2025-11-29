@@ -1,7 +1,7 @@
 # gnosispay-dashboard-extension
 A browser extension that enhances the GnosisPay dashboard with transaction analysis features.
 
-![Extension Screenshot](extension.png)
+![Extension Screenshot](extension2.png)
 
 ## About me
 
