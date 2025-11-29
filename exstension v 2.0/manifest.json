@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Gnosis Pay Extension",
+  "version": "2.0",
+  "description": "Enhanced UI for Gnosis Pay",
+  "permissions": [
+    "storage",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://app.gnosispay.com/*",
+    "https://api.gnosispay.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [{
+    "matches": ["https://app.gnosispay.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_end"
+  }],
+  "web_accessible_resources": [{
+    "matches": ["https://app.gnosispay.com/*"]
+  }]
+}
