@@ -12,7 +12,7 @@ I have been a DeFi user for a fairly long time, and I'm most notably a member of
 This extension's purpose is to enhance the UI and give access to information that is mostly available via API.
 I have no access to your data as this runs in your browser however, a few words of caution are still necessary:
 1. Not everyone on Web3 is here to help you. I might even say that there are more malicious agents than not. Hence, be very vigilant, especially when using code from third parties.
-2. If you do want to use external code, it would be better to read the code first (or at least verify via AI if this is dangerous in any way). The code for the extension is contained within `content.js`. You're more than encouraged to have a look at the code.
+2. If you do want to use external code, it would be better to read the code first (or at least verify via AI if this is dangerous in any way). The code for the extension is contained within `content.js` and `background.js`. You're more than encouraged to have a look at the code.
 3. This code will work as intended, as it is within a vanilla environment. If you make changes or add further extensions, I cannot guarantee that things won't break or sensitive data may become accessible (in particular if extensions are made on purpose by malicious agents). As always, be cautious. 
 
 ## Features
@@ -46,7 +46,7 @@ I have no access to your data as this runs in your browser however, a few words 
 ## Usage
 
 1. Log in to your GnosisPay account at https://app.gnosispay.com/
-2. Navigate to the Card section
+2. Refresh the page and wait for the extension to unroll all transaction data. You will know when it's over because the box with the various tools will appear.
 3. The extension will automatically enhance your transaction view with:
    - MCC codes and cashback eligibility indicators
    - Spending analysis charts
@@ -57,24 +57,24 @@ I have no access to your data as this runs in your browser however, a few words 
 ### Enhanced Transactions list
 - Displays MCC code next to transactions
 - With emojis shows if they earn cashback
-- CSV exporter by clicking the csv icon
+- CSV exporter and Custom Tags dedicated tool
 - Filter transactions with dedicated tool
 
 ### Spending Analysis
-- Monthly breakdown by category or custom tags
+- Monthly breakdown by category, custom tags or card used for spending
 - Interactive category highlighting (if you click on an item in legend, you highlight corresponding transactions)
 - Total spending summary
 
 ### Yearly Overview
 - Annual spending trends
-- Category or custom tags comparison across years
+- Category, custom tags or card used for spending with comparison across years
 - Interactive category highlighting (if you click on an item in legend, you highlight corresponding transactions)
 
 ### Cashback Calculator
 - Select a week to analyze
 - Enter your GNO token amount
 - Toggle OG NFT ownership
-- See estimated cashback amount and rate
+- See estimated cashback amount and rate. USD value is estimated based on latest rate available (hence not accurate).
 
 ### Custom Tags
 - Manual Tagging: Assign up to three custom tags (Tag1, Tag2, Tag3) to selected transactions via checkboxes in the "Select" column. Enter tags in the Custom Tags module and apply them to update the transaction table.
@@ -90,7 +90,7 @@ I have no access to your data as this runs in your browser however, a few words 
 To modify or extend the extension:
 
 1. Clone this repository
-2. Make changes to `content.js`
+2. Make changes to `content.js` or `background.js`
 3. Test by reloading the extension in your browser
 4. Submit a pull request with your improvements
 
