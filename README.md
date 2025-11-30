@@ -13,7 +13,11 @@ This extension's purpose is to enhance the UI and give access to information tha
 I have no access to your data as this runs in your browser however, a few words of caution are still necessary:
 1. Not everyone on Web3 is here to help you. I might even say that there are more malicious agents than not. Hence, be very vigilant, especially when using code from third parties.
 2. If you do want to use external code, it would be better to read the code first (or at least verify via AI if this is dangerous in any way). The code for the extension is contained within `content.js` and `background.js`. You're more than encouraged to have a look at the code.
-3. This code will work as intended, as it is within a vanilla environment. If you make changes or add further extensions, I cannot guarantee that things won't break or sensitive data may become accessible (in particular if extensions are made on purpose by malicious agents). As always, be cautious. 
+3. This code will work as intended, as it is within a vanilla environment. If you make changes or add further extensions, I cannot guarantee that things won't break or sensitive data may become accessible (in particular if extensions are made on purpose by malicious agents). As always, be cautious.
+
+## Versions
+
+In the folder "extension" you will find the historical extension that worked on the first version of the app that has been discontinued. For all users the working extension is now "extension v 2.0".
 
 ## Features
 
@@ -34,14 +38,14 @@ I have no access to your data as this runs in your browser however, a few words 
 1. Download this repository
 2. Go to `chrome://extensions/`, `edge://extensions/`, `brave://extensions/`
 3. Enable "Developer mode"
-4. Click "Load unpacked" and select the `/extension` folder
+4. Click "Load unpacked" and select the `/extension v 2.0` folder
 
 ### Firefox
 
 1. Download this repository
 2. Go to `about:debugging#/runtime/this-firefox`
 3. Click "Load Temporary Add-on"
-4. Select any file in the `/extension` folder
+4. Select any file in the `/extension v 2.0` folder
 
 ## Usage
 
